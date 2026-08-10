@@ -39,19 +39,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = useCallback(
     async (userId: string) => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .maybeSingle();
 
-      if (error) {
-        // Tables may not exist yet — keep app usable.
-        console.warn("Profile load:", error.message);
+        if (error) {
+          console.warn("Profile load:", error.message);
+          setProfile(null);
+          return;
+        }
+        setProfile((data as Profile) ?? null);
+      } catch (err) {
+        console.warn("Profile load failed:", err);
         setProfile(null);
-        return;
       }
-      setProfile((data as Profile) ?? null);
     },
     [supabase]
   );
@@ -64,18 +68,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      if (data.session?.user) {
-        loadProfile(data.session.user.id).finally(() => {
-          if (mounted) setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
-    });
+    // Never stay on the green loader forever (slow network / blocked auth)
+    const timeout = window.setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 2500);
+
+    const finish = () => {
+      if (mounted) setLoading(false);
+    };
+
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        if (!mounted) return;
+        setSession(data.session);
+        setUser(data.session?.user ?? null);
+        if (data.session?.user) {
+          await loadProfile(data.session.user.id);
+        }
+      })
+      .catch((err) => {
+        console.warn("getSession failed:", err);
+      })
+      .finally(finish);
 
     const {
       data: { subscription },
@@ -83,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       if (nextSession?.user) {
-        loadProfile(nextSession.user.id);
+        void loadProfile(nextSession.user.id);
       } else {
         setProfile(null);
       }
@@ -91,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      window.clearTimeout(timeout);
       subscription.unsubscribe();
     };
   }, [loadProfile, supabase]);
@@ -114,7 +130,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (error) return { error: error.message };
 
-      // If trigger hasn't created a profile yet and email confirm is off, upsert fallback.
       if (data.user) {
         await supabase.from("profiles").upsert(
           {
