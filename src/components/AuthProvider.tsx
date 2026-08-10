@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { getAuthCallbackUrl } from "@/lib/auth-urls";
 import type { Profile } from "@/lib/types";
 
 type AuthContextValue = {
@@ -24,7 +25,8 @@ type AuthContextValue = {
     email: string,
     password: string,
     displayName: string
-  ) => Promise<{ error: string | null }>;
+  ) => Promise<{ error: string | null; needsEmailConfirm?: boolean }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -68,7 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Never stay on the green loader forever (slow network / blocked auth)
     const timeout = window.setTimeout(() => {
       if (mounted) setLoading(false);
     }, 2500);
@@ -121,16 +122,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (email: string, password: string, displayName: string) => {
+      const emailRedirectTo = getAuthCallbackUrl("/");
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo,
           data: { display_name: displayName },
         },
       });
       if (error) return { error: error.message };
 
-      if (data.user) {
+      // Session present => email confirm is off or already confirmed
+      const needsEmailConfirm = !data.session;
+
+      if (data.user && data.session) {
         await supabase.from("profiles").upsert(
           {
             id: data.user.id,
@@ -143,10 +149,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           { onConflict: "id" }
         );
       }
-      return { error: null };
+      return { error: null, needsEmailConfirm };
     },
     [supabase]
   );
+
+  const signInWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: getAuthCallbackUrl("/"),
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+    return { error: error?.message ?? null };
+  }, [supabase]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -162,9 +182,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshProfile,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
     }),
-    [user, session, profile, loading, refreshProfile, signIn, signUp, signOut]
+    [
+      user,
+      session,
+      profile,
+      loading,
+      refreshProfile,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      signOut,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
