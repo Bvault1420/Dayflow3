@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Ghost, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
+import { BrandMark, BrandWordmark } from "./Brand";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -49,7 +50,7 @@ export function AuthScreen() {
         if (res.error) {
           if (/confirm|verif/i.test(res.error)) {
             setError(
-              "E-Mail noch nicht bestätigt. Bestätigungslink in der Mail öffnen — oder in Supabase „Confirm email“ für Tests ausschalten."
+              "E-Mail noch nicht bestätigt. Bestätigungslink öffnen — oder in Supabase „Confirm email“ für Tests ausschalten."
             );
           } else {
             setError(res.error);
@@ -64,7 +65,7 @@ export function AuthScreen() {
         if (res.error) setError(res.error);
         else if (res.needsEmailConfirm) {
           setInfo(
-            "Account erstellt. Öffne den Bestätigungslink in der E-Mail (funktioniert jetzt mit dieser App-Adresse, nicht nur localhost)."
+            "Account erstellt. Öffne den Bestätigungslink in der E-Mail — er führt zurück zu dieser App-Adresse."
           );
         } else {
           setInfo("Account erstellt — du bist eingeloggt.");
@@ -90,30 +91,31 @@ export function AuthScreen() {
         setError(res.error);
       }
     }
-    // On success the browser redirects away
   }
 
   return (
     <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-5">
       <div className="pointer-events-none absolute inset-0 bg-auth-mesh" />
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: "easeOut" }}
         className="relative z-10 w-full max-w-md"
       >
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-aippy-green text-black shadow-[0_0_40px_rgba(0,255,102,0.35)]">
-            <Ghost className="h-8 w-8" strokeWidth={2.2} />
+          <div className="mx-auto mb-4 w-fit">
+            <BrandMark className="h-16 w-16 shadow-[0_18px_40px_rgba(36,87,255,0.28)]" />
           </div>
-          <h1 className="font-display text-4xl tracking-tight text-white">Aippy</h1>
-          <p className="mt-2 text-sm text-white/55">
-            Scroll short games. Remix with AI. Publish in seconds.
+          <BrandWordmark className="block text-5xl text-ink" />
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            Short playable moments. Remix with AI.
+            <br />
+            Publish what people swipe next.
           </p>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
-          <div className="mb-5 flex rounded-2xl bg-black/40 p-1">
+        <div className="rounded-[1.6rem] border border-[var(--line)] bg-white/80 p-5 shadow-[0_20px_60px_rgba(14,22,33,0.08)] backdrop-blur-xl">
+          <div className="mb-5 flex rounded-xl bg-canvas p-1">
             {(["login", "signup"] as const).map((m) => (
               <button
                 key={m}
@@ -123,8 +125,8 @@ export function AuthScreen() {
                   setError(null);
                   setInfo(null);
                 }}
-                className={`flex-1 rounded-xl py-2.5 text-sm font-semibold capitalize transition ${
-                  mode === m ? "bg-white text-black" : "text-white/50"
+                className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition ${
+                  mode === m ? "bg-ink text-white" : "text-muted"
                 }`}
               >
                 {m === "login" ? "Log in" : "Sign up"}
@@ -136,7 +138,7 @@ export function AuthScreen() {
             type="button"
             disabled={busy}
             onClick={onGoogle}
-            className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white py-3.5 text-sm font-bold text-black transition hover:bg-white/90 disabled:opacity-60"
+            className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white py-3.5 text-sm font-bold text-ink transition hover:bg-surface-2 disabled:opacity-60"
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -146,69 +148,67 @@ export function AuthScreen() {
             Continue with Google
           </button>
 
-          <div className="mb-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-white/35">
-            <span className="h-px flex-1 bg-white/10" />
+          <div className="mb-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
+            <span className="h-px flex-1 bg-[var(--line)]" />
             or email
-            <span className="h-px flex-1 bg-white/10" />
+            <span className="h-px flex-1 bg-[var(--line)]" />
           </div>
 
           <form onSubmit={onSubmit}>
             {mode === "signup" && (
               <label className="mb-3 block">
-                <span className="mb-1.5 block text-xs text-white/45">Display name</span>
+                <span className="mb-1.5 block text-xs font-medium text-muted">Display name</span>
                 <input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white outline-none ring-aippy-green focus:ring-2"
-                  placeholder="404angelnotfound"
+                  className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
+                  placeholder="yourname"
                   autoComplete="nickname"
                 />
               </label>
             )}
 
             <label className="mb-3 block">
-              <span className="mb-1.5 block text-xs text-white/45">Email</span>
+              <span className="mb-1.5 block text-xs font-medium text-muted">Email</span>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white outline-none ring-aippy-green focus:ring-2"
+                className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
                 placeholder="you@email.com"
                 autoComplete="email"
               />
             </label>
 
             <label className="mb-4 block">
-              <span className="mb-1.5 block text-xs text-white/45">Password</span>
+              <span className="mb-1.5 block text-xs font-medium text-muted">Password</span>
               <input
                 type="password"
                 required
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-black/50 px-4 py-3 text-sm text-white outline-none ring-aippy-green focus:ring-2"
+                className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
                 placeholder="••••••••"
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
               />
             </label>
 
             {error && (
-              <p className="mb-3 rounded-xl bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>
+              <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
             )}
             {info && (
-              <p className="mb-3 rounded-xl bg-aippy-green/15 px-3 py-2 text-sm text-aippy-green">
-                {info}
-              </p>
+              <p className="mb-3 rounded-xl bg-accent-soft px-3 py-2 text-sm text-accent">{info}</p>
             )}
 
             <button
               type="submit"
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-aippy-green py-3.5 text-sm font-bold text-black transition hover:brightness-110 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-60"
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {mode === "login" ? "Enter Aippy" : "Create account"}
+              {mode === "login" ? "Enter Kairos" : "Create account"}
             </button>
           </form>
         </div>

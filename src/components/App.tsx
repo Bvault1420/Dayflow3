@@ -20,12 +20,12 @@ function Placeholder({
   body: string;
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-aippy-green">
+    <div className="flex h-full flex-col items-center justify-center bg-canvas px-8 text-center">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
         <Icon className="h-7 w-7" />
       </div>
-      <h2 className="font-display text-2xl font-bold text-white">{title}</h2>
-      <p className="mt-2 text-sm text-white/50">{body}</p>
+      <h2 className="font-display text-3xl font-bold text-ink">{title}</h2>
+      <p className="mt-2 max-w-xs text-sm text-muted">{body}</p>
     </div>
   );
 }
@@ -38,19 +38,19 @@ function AppShell() {
 
   if (loading) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-black">
-        <div className="h-10 w-10 animate-pulse rounded-full bg-aippy-green/80" />
+      <div className="flex min-h-dvh items-center justify-center bg-canvas">
+        <div className="h-10 w-10 animate-pulse rounded-2xl bg-accent/80" />
       </div>
     );
   }
 
   if (showAuth && !user) {
     return (
-      <div className="min-h-dvh bg-black">
+      <div className="min-h-dvh">
         <AuthScreen />
         <button
           type="button"
-          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-white/10 px-4 py-2 text-sm text-white backdrop-blur"
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-white/90 px-4 py-2 text-sm font-medium text-ink backdrop-blur"
           onClick={() => setShowAuth(false)}
         >
           Continue browsing
@@ -76,20 +76,20 @@ function AppShell() {
   }
 
   return (
-    <div className="relative mx-auto min-h-dvh w-full max-w-lg bg-black text-white shadow-2xl">
+    <div className="app-shell relative mx-auto min-h-dvh w-full max-w-lg overflow-hidden text-ink sm:my-4 sm:min-h-[min(100dvh-2rem,900px)] sm:rounded-shell">
       <div className="absolute inset-0 overflow-hidden">
         {tab === "feed" && <Feed onNeedAuth={() => setShowAuth(true)} />}
         {tab === "explore" && (
           <Placeholder
             icon={Compass}
             title="Discover"
-            body="Trending remixes and creators will land here next."
+            body="Trending remixes and rising creators land here next."
           />
         )}
         {tab === "notifications" && (
           <Placeholder
             icon={Bell}
-            title="Notifications"
+            title="Alerts"
             body="Likes, comments, and follows will show up here."
           />
         )}

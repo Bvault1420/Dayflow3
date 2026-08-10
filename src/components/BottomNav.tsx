@@ -1,10 +1,10 @@
 "use client";
 
-import { Bell, Compass, Ghost, Plus, User } from "lucide-react";
+import { Bell, Compass, House, Plus, User } from "lucide-react";
 import type { TabId } from "@/lib/types";
 
-const ITEMS: { id: TabId; icon: typeof Ghost; label: string }[] = [
-  { id: "feed", icon: Ghost, label: "Home" },
+const ITEMS: { id: TabId; icon: typeof House; label: string }[] = [
+  { id: "feed", icon: House, label: "Home" },
   { id: "explore", icon: Compass, label: "Explore" },
   { id: "notifications", icon: Bell, label: "Alerts" },
   { id: "profile", icon: User, label: "Profile" },
@@ -18,9 +18,9 @@ export function BottomNav({
   onChange: (tab: TabId) => void;
 }) {
   return (
-    <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto mx-auto flex max-w-lg items-center gap-2">
-        <div className="flex flex-1 items-center justify-around rounded-[1.75rem] border border-white/10 bg-[#121214]/95 px-2 py-2.5 shadow-2xl backdrop-blur-xl">
+    <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-4 pb-[max(0.85rem,env(safe-area-inset-bottom))]">
+      <div className="pointer-events-auto mx-auto flex max-w-lg items-stretch gap-2">
+        <div className="flex flex-1 items-center justify-between rounded-2xl border border-[var(--line)] bg-white/90 px-1.5 py-1.5 backdrop-blur-xl">
           {ITEMS.map(({ id, icon: Icon, label }) => {
             const isActive = active === id;
             return (
@@ -29,11 +29,12 @@ export function BottomNav({
                 type="button"
                 aria-label={label}
                 onClick={() => onChange(id)}
-                className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
-                  isActive ? "bg-white text-black" : "text-white/70 hover:text-white"
+                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 transition ${
+                  isActive ? "bg-accent-soft text-accent" : "text-muted hover:text-ink"
                 }`}
               >
-                <Icon className="h-5 w-5" strokeWidth={isActive ? 2.4 : 2} />
+                <Icon className="h-[1.15rem] w-[1.15rem]" strokeWidth={isActive ? 2.5 : 2} />
+                <span className="truncate text-[10px] font-semibold tracking-wide">{label}</span>
               </button>
             );
           })}
@@ -42,9 +43,9 @@ export function BottomNav({
           type="button"
           aria-label="Create"
           onClick={() => onChange("create")}
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-aippy-green text-black shadow-[0_0_28px_rgba(0,255,102,0.45)] transition hover:scale-105 active:scale-95"
+          className="flex w-14 shrink-0 items-center justify-center rounded-2xl bg-hot text-hot-ink transition hover:brightness-105 active:scale-[0.97]"
         >
-          <Plus className="h-7 w-7" strokeWidth={2.8} />
+          <Plus className="h-6 w-6" strokeWidth={2.6} />
         </button>
       </div>
     </nav>

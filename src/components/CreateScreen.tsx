@@ -16,17 +16,24 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "./AuthProvider";
 import { DEMO_GAMES, formatCount } from "@/lib/demo-data";
 import type { Game } from "@/lib/types";
+import { BrandWordmark } from "./Brand";
 
 const TOOLS = [
   { id: "images", label: "Images", icon: ImageIcon },
   { id: "sounds", label: "Sounds", icon: Music2 },
   { id: "meme", label: "Meme", icon: Smile },
-  { id: "make", label: "Create Image", icon: Sparkles },
+  { id: "make", label: "Make Image", icon: Sparkles },
 ];
 
 const THEMES = ["neon", "purple-pipes", "city", "candy", "monster"] as const;
 
-export function CreateScreen({ onClose, onPublished }: { onClose: () => void; onPublished: () => void }) {
+export function CreateScreen({
+  onClose,
+  onPublished,
+}: {
+  onClose: () => void;
+  onPublished: () => void;
+}) {
   const { user, profile } = useAuth();
   const supabase = useMemo(() => createClient(), []);
   const [prompt, setPrompt] = useState("");
@@ -68,9 +75,8 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
     }
     setBusy(true);
     setError(null);
-    setStatus(aiAssist ? "AI is shaping your experience..." : "Building your game...");
+    setStatus(aiAssist ? "Kairos is shaping your moment..." : "Building your game...");
 
-    // Simulated AI generation delay for MVP feel
     await new Promise((r) => setTimeout(r, 900));
 
     const gameTitle =
@@ -79,7 +85,7 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
         .split(/[.!?]/)[0]
         .slice(0, 48)
         .trim() ||
-      "Untitled Experience";
+      "Untitled Moment";
 
     const payload = {
       creator_id: user.id,
@@ -112,62 +118,66 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
   }
 
   return (
-    <div className="relative flex h-full flex-col bg-[#0b0b0d]">
+    <div className="relative flex h-full flex-col bg-canvas">
       <div className="flex items-center justify-between px-4 pb-2 pt-12">
         <button
           type="button"
           onClick={onClose}
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--line)] bg-white text-ink"
         >
           <X className="h-5 w-5" />
         </button>
-        <h1 className="font-display text-xl font-bold text-white">Create</h1>
+        <BrandWordmark className="text-xl text-ink" />
         <div className="w-9" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-36">
-        <p className="mb-4 font-display text-3xl font-bold leading-tight text-white">
-          Turn Words into
+      <div className="flex-1 overflow-y-auto px-4 pb-28">
+        <motion.p
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-5 font-display text-[2rem] font-extrabold leading-[1.05] text-ink"
+        >
+          Describe a moment.
           <br />
-          Stuff in Seconds.
-        </p>
+          <span className="text-accent">Ship it in seconds.</span>
+        </motion.p>
 
-        <div className="rounded-3xl border border-white/10 bg-[#17171a] p-4">
+        <div className="rounded-2xl border border-[var(--line)] bg-white p-4 shadow-[0_12px_40px_rgba(14,22,33,0.06)]">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Type your idea and start building..."
             rows={5}
-            className="w-full resize-none bg-transparent text-base text-white outline-none placeholder:text-white/35"
+            className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
           />
           <div className="mt-2 flex items-center justify-between">
             <button
               type="button"
               onClick={() => setAiAssist((v) => !v)}
-              className="flex items-center gap-2 text-white/60"
+              className="flex items-center gap-2 text-muted"
             >
-              <Lightbulb className={`h-4 w-4 ${aiAssist ? "text-aippy-green" : ""}`} />
+              <Lightbulb className={`h-4 w-4 ${aiAssist ? "text-accent" : ""}`} />
               <span
                 className={`relative h-5 w-9 rounded-full transition ${
-                  aiAssist ? "bg-aippy-green" : "bg-white/20"
+                  aiAssist ? "bg-accent" : "bg-canvas"
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-black transition ${
+                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
                     aiAssist ? "left-4" : "left-0.5"
                   }`}
                 />
               </span>
             </button>
             <div className="flex items-center gap-2">
-              <button type="button" className="rounded-full p-2 text-white/50">
+              <button type="button" className="rounded-xl p-2 text-muted">
                 <Mic className="h-5 w-5" />
               </button>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => publish(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black disabled:opacity-50"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
               >
                 <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
               </button>
@@ -180,26 +190,26 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
             <button
               key={id}
               type="button"
-              className="flex shrink-0 flex-col items-center gap-2 rounded-2xl border border-white/10 bg-[#17171a] px-4 py-3 text-white/80"
+              className="flex shrink-0 flex-col items-center gap-2 rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-ink"
             >
-              <Icon className="h-5 w-5" />
-              <span className="text-[11px] font-medium">{label}</span>
+              <Icon className="h-5 w-5 text-accent" />
+              <span className="text-[11px] font-semibold">{label}</span>
             </button>
           ))}
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <label className="rounded-2xl border border-white/10 bg-[#17171a] p-3">
-            <span className="text-[11px] text-white/40">Title (optional)</span>
+          <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
+            <span className="text-[11px] font-medium text-muted">Title (optional)</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 w-full bg-transparent text-sm text-white outline-none"
+              className="mt-1 w-full bg-transparent text-sm text-ink outline-none"
               placeholder="My wild game"
             />
           </label>
-          <label className="rounded-2xl border border-white/10 bg-[#17171a] p-3">
-            <span className="text-[11px] text-white/40">Duration {duration}s</span>
+          <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
+            <span className="text-[11px] font-medium text-muted">Duration {duration}s</span>
             <input
               type="range"
               min={10}
@@ -207,7 +217,7 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
               step={5}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
-              className="mt-3 w-full accent-aippy-green"
+              className="mt-3 w-full accent-accent"
             />
           </label>
         </div>
@@ -218,8 +228,8 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
               key={t}
               type="button"
               onClick={() => setTheme(t)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${
-                theme === t ? "bg-aippy-green text-black" : "bg-white/10 text-white/70"
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize ${
+                theme === t ? "bg-ink text-white" : "bg-white text-muted border border-[var(--line)]"
               }`}
             >
               {t.replace("-", " ")}
@@ -230,7 +240,7 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
         {(error || status) && (
           <p
             className={`mt-4 rounded-2xl px-3 py-2 text-sm ${
-              error ? "bg-red-500/15 text-red-300" : "bg-aippy-green/10 text-aippy-green"
+              error ? "bg-red-50 text-red-600" : "bg-accent-soft text-accent"
             }`}
           >
             {error ?? status}
@@ -242,7 +252,7 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
             type="button"
             disabled={busy}
             onClick={() => publish(true)}
-            className="flex-1 rounded-2xl border border-white/15 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="flex-1 rounded-xl border border-[var(--line)] bg-white py-3 text-sm font-semibold text-ink disabled:opacity-50"
           >
             Save draft
           </button>
@@ -250,7 +260,7 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
             type="button"
             disabled={busy}
             onClick={() => publish(false)}
-            className="flex-1 rounded-2xl bg-aippy-green py-3 text-sm font-bold text-black disabled:opacity-50"
+            className="flex-1 rounded-xl bg-hot py-3 text-sm font-bold text-hot-ink disabled:opacity-50"
           >
             Publish
           </button>
@@ -262,10 +272,10 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
           className="mt-8 flex w-full items-center justify-between text-left"
         >
           <div>
-            <p className="font-display text-2xl font-bold text-white">Remix It Yours</p>
-            <p className="text-sm text-white/45">Start from a viral experience</p>
+            <p className="font-display text-2xl font-bold text-ink">Remix a spark</p>
+            <p className="text-sm text-muted">Start from something already loved</p>
           </div>
-          <span className="text-white/50">{showRemixes ? "▾" : "▸"}</span>
+          <span className="text-muted">{showRemixes ? "▾" : "▸"}</span>
         </button>
 
         <AnimatePresence>
@@ -285,22 +295,22 @@ export function CreateScreen({ onClose, onPublished }: { onClose: () => void; on
                     setTitle(`Remix: ${g.title}`);
                     setTheme((g.theme as (typeof THEMES)[number]) || "neon");
                   }}
-                  className="overflow-hidden rounded-2xl border border-white/10 bg-[#17171a] text-left"
+                  className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
                 >
                   <div
-                    className="aspect-square bg-cover"
+                    className="aspect-square"
                     style={{
                       background:
                         g.theme === "candy"
                           ? "linear-gradient(145deg,#ff9ad5,#7a1048)"
                           : g.theme === "city"
                             ? "linear-gradient(145deg,#4aa3ff,#0d1b2a)"
-                            : "linear-gradient(145deg,#5b2d91,#050508)",
+                            : "linear-gradient(145deg,#2457ff,#0e1621)",
                     }}
                   />
                   <div className="p-2.5">
-                    <p className="truncate text-sm font-semibold text-white">{g.title}</p>
-                    <div className="mt-1 flex items-center justify-between text-[11px] text-white/45">
+                    <p className="truncate text-sm font-semibold text-ink">{g.title}</p>
+                    <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
                       <span>@{g.creator?.username ?? profile?.username ?? "creator"}</span>
                       <span>♥ {formatCount(g.like_count)}</span>
                     </div>

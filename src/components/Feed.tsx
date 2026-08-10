@@ -31,31 +31,28 @@ function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
 
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ background: theme.bg }}>
-      <div className="absolute inset-0 opacity-30 mix-blend-screen">
-        <div className="absolute left-[10%] top-[20%] h-40 w-16 rounded-md bg-aippy-green/80 blur-[1px]" />
-        <div className="absolute right-[18%] top-[35%] h-52 w-16 rounded-md bg-aippy-green/70" />
-        <div className="absolute left-[35%] top-[55%] h-44 w-14 rounded-md bg-cyan-300/50" />
+      <div className="absolute inset-0 opacity-40">
+        <div className="absolute left-[12%] top-[22%] h-36 w-14 rotate-6 rounded-lg bg-sky-300/70" />
+        <div className="absolute right-[16%] top-[30%] h-48 w-14 -rotate-3 rounded-lg bg-orange-300/65" />
+        <div className="absolute left-[40%] top-[58%] h-40 w-12 rounded-lg bg-white/25" />
       </div>
       {game.theme === "city" && (
         <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/50 to-transparent">
           <div className="absolute bottom-28 left-1/2 h-24 w-10 -translate-x-1/2 rounded-t-lg bg-[#1a1a22]" />
         </div>
       )}
-      <div className="absolute left-1/2 top-[18%] -translate-x-1/2 font-display text-7xl font-bold text-white drop-shadow-lg">
+      <div className="absolute left-1/2 top-[16%] -translate-x-1/2 font-display text-7xl font-extrabold text-white/95">
         {score}
       </div>
-      <div className="absolute inset-x-0 top-[42%] text-center">
-        <span className="rounded-full bg-black/35 px-4 py-1.5 text-xs font-semibold tracking-widest text-white/80 backdrop-blur">
+      <div className="absolute inset-x-0 top-[40%] text-center">
+        <span className="rounded-md bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-white backdrop-blur">
           {theme.label}
         </span>
       </div>
-      <div className="absolute bottom-36 left-6 h-20 w-20 rounded-full border border-white/25 bg-white/10 backdrop-blur-sm" />
-      <div className="absolute bottom-36 right-6 flex flex-col gap-3">
+      <div className="absolute bottom-40 left-5 h-16 w-16 rounded-2xl border border-white/25 bg-white/10" />
+      <div className="absolute bottom-40 right-5 flex gap-2">
         {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="h-12 w-12 rounded-full border border-white/20 bg-white/10 backdrop-blur-sm"
-          />
+          <div key={i} className="h-11 w-11 rounded-2xl border border-white/20 bg-white/10" />
         ))}
       </div>
     </div>
@@ -130,45 +127,45 @@ function CommentsSheet({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 28, stiffness: 320 }}
-            className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-hidden rounded-t-3xl border border-white/10 bg-[#161618]"
+            className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-hidden rounded-t-[1.5rem] border border-[var(--line)] bg-white"
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h3 className="font-semibold text-white">Comments</h3>
-              <button type="button" onClick={onClose} className="text-white/60">
+            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+              <h3 className="font-display text-lg font-bold text-ink">Comments</h3>
+              <button type="button" onClick={onClose} className="text-muted">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="max-h-64 space-y-3 overflow-y-auto px-4 py-3">
               {comments.length === 0 && (
-                <p className="py-8 text-center text-sm text-white/40">No comments yet</p>
+                <p className="py-8 text-center text-sm text-muted">No comments yet</p>
               )}
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-xs font-bold text-accent">
                     {(c.profile?.display_name ?? "U").slice(0, 1)}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-white/80">
+                    <p className="text-xs font-semibold text-ink">
                       {c.profile?.display_name ?? c.profile?.username ?? "Player"}
                     </p>
-                    <p className="text-sm text-white/70">{c.body}</p>
+                    <p className="text-sm text-muted">{c.body}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="flex gap-2 border-t border-white/10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex gap-2 border-t border-[var(--line)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <input
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder="Add a comment..."
-                className="flex-1 rounded-full border border-white/10 bg-black/40 px-4 py-2.5 text-sm text-white outline-none"
+                className="flex-1 rounded-xl border border-[var(--line)] bg-canvas px-4 py-2.5 text-sm text-ink outline-none"
                 maxLength={500}
               />
               <button
                 type="button"
                 disabled={loading || !body.trim()}
                 onClick={submit}
-                className="rounded-full bg-aippy-green px-4 py-2 text-sm font-bold text-black disabled:opacity-50"
+                className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
                 Post
               </button>
@@ -252,51 +249,63 @@ function FeedItem({
   return (
     <section className="relative h-full w-full snap-start snap-always">
       <GameCanvas game={game} playing={active} />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/70" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0e1621]/45 via-transparent to-[#0e1621]/80" />
 
-      <div className="absolute left-4 top-14 z-10">
-        <p className="text-xs font-medium tracking-wide text-white/70">Swipe for Experiences</p>
+      <div className="absolute left-4 right-4 top-12 z-10 flex items-end justify-between">
+        <div>
+          <p className="font-display text-2xl font-extrabold text-white">Kairos</p>
+          <p className="text-xs font-medium text-white/70">Swipe the next moment</p>
+        </div>
+        <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+          {game.duration_seconds}s
+        </div>
       </div>
 
-      <div className="absolute bottom-28 left-4 right-20 z-10">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="relative">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-500 text-sm font-bold text-white">
-              {creatorName.slice(0, 1)}
-            </div>
-            <span className="absolute -bottom-1 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-aippy-green text-black">
-              <Plus className="h-3 w-3" strokeWidth={3} />
-            </span>
+      <div className="absolute inset-x-3 bottom-24 z-10 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-blue-700 text-sm font-bold text-white">
+            {creatorName.slice(0, 1)}
           </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-display text-lg font-bold leading-tight text-white">
+              {game.title}
+            </h2>
+            <p className="text-sm text-white/70">{creatorName}</p>
+          </div>
+          <button
+            type="button"
+            className="pointer-events-auto inline-flex items-center gap-1 rounded-xl bg-hot px-3 py-2 text-xs font-bold text-hot-ink"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={3} />
+            Follow
+          </button>
         </div>
-        <h2 className="font-display text-lg font-bold leading-tight text-white">{game.title}</h2>
-        <p className="mt-0.5 text-sm text-white/65">{creatorName}</p>
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-white/55">
-          <Eye className="h-3.5 w-3.5" />
-          {formatCount(viewCount)} · {game.duration_seconds}s
-        </div>
-      </div>
 
-      <div className="absolute bottom-28 right-3 z-10 flex flex-col items-center gap-4">
-        <ActionBtn
-          icon={<Bookmark className={`h-6 w-6 ${saved ? "fill-white" : ""}`} />}
-          label={formatCount(saveCount)}
-          onClick={toggleSave}
-        />
-        <ActionBtn
-          icon={<Heart className={`h-6 w-6 ${liked ? "fill-rose-500 text-rose-500" : ""}`} />}
-          label={formatCount(likeCount)}
-          onClick={toggleLike}
-        />
-        <ActionBtn
-          icon={<MessageCircle className="h-6 w-6" />}
-          label={formatCount(commentCount)}
-          onClick={() => {
-            if (!user) return onNeedAuth();
-            setCommentsOpen(true);
-          }}
-        />
-        <ActionBtn icon={<Share2 className="h-6 w-6" />} label={formatCount(game.share_count)} />
+        <div className="pointer-events-auto flex items-center justify-between rounded-2xl border border-white/15 bg-[#0e1621]/55 px-2 py-2 backdrop-blur-md">
+          <ActionBtn
+            icon={<Eye className="h-5 w-5" />}
+            label={formatCount(viewCount)}
+          />
+          <ActionBtn
+            icon={<Heart className={`h-5 w-5 ${liked ? "fill-hot text-hot" : ""}`} />}
+            label={formatCount(likeCount)}
+            onClick={toggleLike}
+          />
+          <ActionBtn
+            icon={<Bookmark className={`h-5 w-5 ${saved ? "fill-white" : ""}`} />}
+            label={formatCount(saveCount)}
+            onClick={toggleSave}
+          />
+          <ActionBtn
+            icon={<MessageCircle className="h-5 w-5" />}
+            label={formatCount(commentCount)}
+            onClick={() => {
+              if (!user) return onNeedAuth();
+              setCommentsOpen(true);
+            }}
+          />
+          <ActionBtn icon={<Share2 className="h-5 w-5" />} label={formatCount(game.share_count)} />
+        </div>
       </div>
 
       <CommentsSheet
@@ -322,10 +331,10 @@ function ActionBtn({
     <button
       type="button"
       onClick={onClick}
-      className="pointer-events-auto flex flex-col items-center gap-1 text-white drop-shadow"
+      className="flex flex-1 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-white transition hover:bg-white/10"
     >
       {icon}
-      <span className="text-[11px] font-medium">{label}</span>
+      <span className="text-[10px] font-semibold tracking-wide">{label}</span>
     </button>
   );
 }

@@ -1,13 +1,13 @@
-# Aippy
+# Kairos
 
-TikTok × Roblox hybrid: scroll short games (10–60s), remix with AI, publish, and build your profile — with Supabase auth.
+Short playable moments — scroll bite-size games, remix with AI, publish in seconds.
 
 ## Features
 
-- **Feed** — vertical snap scroll of short playable experiences with likes, comments, saves, views
-- **Create** — prompt-first AI create flow, remix grid, draft/publish (10–60s)
-- **Profile** — created / liked / saved / history tabs, followers, level & coins
-- **Auth** — email + password via Supabase
+- **Feed** — vertical snap scroll of 10–60s experiences with likes, comments, saves, views
+- **Create** — prompt-first builder, remix grid, draft/publish
+- **Profile** — created / liked / saved / history, followers, level & coins
+- **Auth** — email + password and Google (via Supabase)
 
 ## Setup
 
@@ -29,7 +29,7 @@ cp .env.example .env.local
    - **Redirect URLs** (add all you use):
      - `http://localhost:3000/auth/callback`
      - `http://127.0.0.1:3000/auth/callback`
-     - `https://*.agent.cvm.dev/auth/callback` (if wildcards allowed; otherwise paste the exact preview URL + `/auth/callback`)
+     - your exact preview URL + `/auth/callback`
 
 5. For easier local testing: Authentication → Providers → Email → turn **Confirm email** OFF (optional).
 

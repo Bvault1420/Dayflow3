@@ -1,30 +1,30 @@
 import type { Metadata, Viewport } from "next";
-import { Space_Grotesk, Syne } from "next/font/google";
+import { Bricolage_Grotesque, Manrope } from "next/font/google";
 import "./globals.css";
 
-const body = Space_Grotesk({
+const body = Manrope({
   subsets: ["latin"],
   variable: "--font-body",
 });
 
-const display = Syne({
+const display = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-display",
   weight: ["500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
-  title: "Aippy — Scroll & Create Short Games",
+  title: "Kairos — Short playable moments",
   description:
-    "TikTok meets Roblox: scroll 10–60s games, remix with AI, and publish your own experiences.",
-  applicationName: "Aippy",
+    "Scroll bite-size games, remix them with AI, and publish your own 10–60s experiences.",
+  applicationName: "Kairos",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#000000",
+  themeColor: "#eef2f7",
   viewportFit: "cover",
 };
 
