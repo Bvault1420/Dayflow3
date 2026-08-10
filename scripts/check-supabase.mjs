@@ -17,8 +17,17 @@ async function main() {
   console.log("Auth health:", health.status, await health.text());
 
   const key = service || anon;
-  for (const table of ["profiles", "games", "likes", "saves", "comments", "follows", "views"]) {
-    const res = await fetch(`${url}/rest/v1/${table}?select=id&limit=1`, {
+  const selects = {
+    profiles: "id",
+    games: "id",
+    likes: "user_id,game_id",
+    saves: "user_id,game_id",
+    comments: "id",
+    follows: "follower_id,following_id",
+    views: "id",
+  };
+  for (const [table, select] of Object.entries(selects)) {
+    const res = await fetch(`${url}/rest/v1/${table}?select=${select}&limit=1`, {
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
