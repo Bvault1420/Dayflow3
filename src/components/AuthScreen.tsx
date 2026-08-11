@@ -30,7 +30,7 @@ function GoogleIcon({ className }: { className?: string }) {
 }
 
 export function AuthScreen() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, resendConfirmation } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,20 +38,25 @@ export function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [needsConfirm, setNeedsConfirm] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setInfo(null);
+    setNeedsConfirm(false);
     setBusy(true);
     try {
       if (mode === "login") {
         const res = await signIn(email.trim(), password);
         if (res.error) {
-          if (/confirm|verif/i.test(res.error)) {
+          if (/confirm|verif|email_not_confirmed/i.test(res.error)) {
+            setNeedsConfirm(true);
             setError(
-              "E-Mail noch nicht bestätigt. Bestätigungslink öffnen — oder in Supabase „Confirm email“ für Tests ausschalten."
+              "E-Mail ist noch nicht bestätigt. Schau in Spam — oder tippe unten auf „Mail erneut senden“. Am schnellsten: in Supabase „Confirm email“ ausschalten."
             );
+          } else if (/invalid login/i.test(res.error)) {
+            setError("E-Mail oder Passwort falsch.");
           } else {
             setError(res.error);
           }
@@ -64,8 +69,9 @@ export function AuthScreen() {
         const res = await signUp(email.trim(), password, displayName.trim());
         if (res.error) setError(res.error);
         else if (res.needsEmailConfirm) {
+          setNeedsConfirm(true);
           setInfo(
-            "Account erstellt. Öffne den Bestätigungslink in der E-Mail — er führt zurück zu dieser App-Adresse."
+            "Account erstellt. Bestätigungsmails vom kostenlosen Supabase-Mailer kommen oft nicht an (Spam/Limit). Am besten Confirm email in Supabase ausschalten — dann kannst du direkt einloggen."
           );
         } else {
           setInfo("Account erstellt — du bist eingeloggt.");
@@ -74,6 +80,19 @@ export function AuthScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onResend() {
+    if (!email.trim()) {
+      setError("Bitte zuerst E-Mail eintragen");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await resendConfirmation(email.trim());
+    setBusy(false);
+    if (res.error) setError(res.error);
+    else setInfo("Bestätigungsmail wurde erneut angefordert. Spam-Ordner prüfen.");
   }
 
   async function onGoogle() {
@@ -85,12 +104,16 @@ export function AuthScreen() {
       setBusy(false);
       if (/provider is not enabled/i.test(res.error)) {
         setError(
-          "Google Login ist in Supabase noch nicht aktiviert. Authentication → Providers → Google einschalten."
+          "Google ist in Supabase noch aus. Gehe zu Authentication → Providers → Google → Enable und trage Client ID + Secret ein."
         );
       } else {
         setError(res.error);
       }
+      return;
     }
+    // If OAuth URL opens but provider is broken, user sees Supabase error page.
+    // Soft hint after a short delay if still on page:
+    window.setTimeout(() => setBusy(false), 4000);
   }
 
   return (
@@ -124,6 +147,7 @@ export function AuthScreen() {
                   setMode(m);
                   setError(null);
                   setInfo(null);
+                  setNeedsConfirm(false);
                 }}
                 className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition ${
                   mode === m ? "bg-ink text-white" : "text-muted"
@@ -200,6 +224,17 @@ export function AuthScreen() {
             )}
             {info && (
               <p className="mb-3 rounded-xl bg-accent-soft px-3 py-2 text-sm text-accent">{info}</p>
+            )}
+
+            {needsConfirm && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onResend}
+                className="mb-3 w-full rounded-xl border border-[var(--line)] bg-white py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+              >
+                Bestätigungsmail erneut senden
+              </button>
             )}
 
             <button
