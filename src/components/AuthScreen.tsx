@@ -246,6 +246,18 @@ export function AuthScreen() {
               {mode === "login" ? "Enter Kairos" : "Create account"}
             </button>
           </form>
+
+          <p className="mt-4 text-center text-[11px] leading-relaxed text-muted">
+            By continuing you agree to our{" "}
+            <a href="/terms" className="font-semibold text-accent underline-offset-2 hover:underline">
+              Terms
+            </a>{" "}
+            and{" "}
+            <a href="/privacy" className="font-semibold text-accent underline-offset-2 hover:underline">
+              Privacy Policy
+            </a>
+            .
+          </p>
         </div>
       </motion.div>
     </div>

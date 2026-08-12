@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(
-    async (userId: string) => {
+    async (userId: string, meta?: { display_name?: string }) => {
       try {
         const { data, error } = await supabase
           .from("profiles")
@@ -54,7 +54,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null);
           return;
         }
-        setProfile((data as Profile) ?? null);
+
+        if (data) {
+          setProfile(data as Profile);
+          return;
+        }
+
+        // Trigger may have missed (e.g. confirm-email delay) — create profile now
+        const base =
+          (meta?.display_name || "player")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "") || "player";
+        const username = `${base}_${userId.replace(/-/g, "").slice(0, 6)}`;
+        const { data: created, error: upsertErr } = await supabase
+          .from("profiles")
+          .upsert(
+            {
+              id: userId,
+              username,
+              display_name: meta?.display_name || base,
+            },
+            { onConflict: "id" }
+          )
+          .select("*")
+          .maybeSingle();
+
+        if (upsertErr) {
+          console.warn("Profile ensure:", upsertErr.message);
+          setProfile(null);
+          return;
+        }
+        setProfile((created as Profile) ?? null);
       } catch (err) {
         console.warn("Profile load failed:", err);
         setProfile(null);
@@ -86,7 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(data.session);
         setUser(data.session?.user ?? null);
         if (data.session?.user) {
-          await loadProfile(data.session.user.id);
+          await loadProfile(data.session.user.id, {
+            display_name: data.session.user.user_metadata?.display_name,
+          });
         }
       })
       .catch((err) => {
@@ -100,7 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       if (nextSession?.user) {
-        void loadProfile(nextSession.user.id);
+        void loadProfile(nextSession.user.id, {
+          display_name: nextSession.user.user_metadata?.display_name,
+        });
       } else {
         setProfile(null);
       }

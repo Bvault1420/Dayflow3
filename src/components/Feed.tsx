@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { DEMO_GAMES, THEME_STYLES, formatCount } from "@/lib/demo-data";
 import type { Comment, Game } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { COMMENT_WITH_PROFILE, GAME_WITH_CREATOR } from "@/lib/supabase/queries";
 import { useAuth } from "./AuthProvider";
 
 function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
@@ -82,7 +83,7 @@ function CommentsSheet({
     (async () => {
       const { data } = await supabase
         .from("comments")
-        .select("*, profile:profiles(*)")
+        .select(COMMENT_WITH_PROFILE)
         .eq("game_id", game.id)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -99,7 +100,7 @@ function CommentsSheet({
     const { data, error } = await supabase
       .from("comments")
       .insert({ game_id: game.id, user_id: user.id, body: body.trim() })
-      .select("*, profile:profiles(*)")
+      .select(COMMENT_WITH_PROFILE)
       .single();
     setLoading(false);
     if (!error && data) {
@@ -195,32 +196,61 @@ function FeedItem({
   const [commentCount, setCommentCount] = useState(game.comment_count);
   const [viewCount, setViewCount] = useState(game.view_count);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const viewed = useRef(false);
+  const isDemo = game.id.startsWith("demo-");
 
   useEffect(() => {
     if (!active || viewed.current) return;
     viewed.current = true;
     setViewCount((v) => v + 1);
-    if (game.id.startsWith("demo-")) return;
+    if (isDemo) return;
     void supabase.rpc("record_view", {
       p_game_id: game.id,
       p_user_id: user?.id ?? null,
     });
-  }, [active, game.id, supabase, user?.id]);
+  }, [active, game.id, isDemo, supabase, user?.id]);
+
+  useEffect(() => {
+    if (!user || isDemo || !game.creator_id) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("follows")
+        .select("follower_id")
+        .eq("follower_id", user.id)
+        .eq("following_id", game.creator_id)
+        .maybeSingle();
+      if (!cancelled) setFollowing(!!data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isDemo, game.creator_id, supabase]);
 
   async function toggleLike() {
     if (!user) return onNeedAuth();
-    if (game.id.startsWith("demo-")) {
+    setActionError(null);
+    if (isDemo) {
       setLiked((v) => !v);
       setLikeCount((c) => (liked ? c - 1 : c + 1));
       return;
     }
     if (liked) {
-      await supabase.from("likes").delete().eq("user_id", user.id).eq("game_id", game.id);
+      const { error } = await supabase
+        .from("likes")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("game_id", game.id);
+      if (error) return setActionError(error.message);
       setLiked(false);
       setLikeCount((c) => Math.max(0, c - 1));
     } else {
-      await supabase.from("likes").insert({ user_id: user.id, game_id: game.id });
+      const { error } = await supabase
+        .from("likes")
+        .insert({ user_id: user.id, game_id: game.id });
+      if (error) return setActionError(error.message);
       setLiked(true);
       setLikeCount((c) => c + 1);
     }
@@ -228,19 +258,67 @@ function FeedItem({
 
   async function toggleSave() {
     if (!user) return onNeedAuth();
-    if (game.id.startsWith("demo-")) {
+    setActionError(null);
+    if (isDemo) {
       setSaved((v) => !v);
       setSaveCount((c) => (saved ? c - 1 : c + 1));
       return;
     }
     if (saved) {
-      await supabase.from("saves").delete().eq("user_id", user.id).eq("game_id", game.id);
+      const { error } = await supabase
+        .from("saves")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("game_id", game.id);
+      if (error) return setActionError(error.message);
       setSaved(false);
       setSaveCount((c) => Math.max(0, c - 1));
     } else {
-      await supabase.from("saves").insert({ user_id: user.id, game_id: game.id });
+      const { error } = await supabase
+        .from("saves")
+        .insert({ user_id: user.id, game_id: game.id });
+      if (error) return setActionError(error.message);
       setSaved(true);
       setSaveCount((c) => c + 1);
+    }
+  }
+
+  async function toggleFollow() {
+    if (!user) return onNeedAuth();
+    if (isDemo || !game.creator_id || game.creator_id === user.id) return;
+    setActionError(null);
+    if (following) {
+      const { error } = await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", user.id)
+        .eq("following_id", game.creator_id);
+      if (error) return setActionError(error.message);
+      setFollowing(false);
+    } else {
+      const { error } = await supabase.from("follows").insert({
+        follower_id: user.id,
+        following_id: game.creator_id,
+      });
+      if (error) return setActionError(error.message);
+      setFollowing(true);
+    }
+  }
+
+  async function shareGame() {
+    const shareData = {
+      title: game.title,
+      text: `Play “${game.title}” on Kairos`,
+      url: typeof window !== "undefined" ? window.location.href : "https://kairos.app",
+    };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareData.url);
+        setActionError(null);
+      }
+    } catch {
+      /* user cancelled */
     }
   }
 
@@ -256,12 +334,24 @@ function FeedItem({
           <p className="font-display text-2xl font-extrabold text-white">Kairos</p>
           <p className="text-xs font-medium text-white/70">Swipe the next moment</p>
         </div>
-        <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
-          {game.duration_seconds}s
+        <div className="flex items-center gap-2">
+          {isDemo && (
+            <span className="rounded-lg bg-hot/90 px-2.5 py-1 text-[11px] font-bold text-hot-ink">
+              Demo
+            </span>
+          )}
+          <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+            {game.duration_seconds}s
+          </div>
         </div>
       </div>
 
       <div className="absolute inset-x-3 bottom-24 z-10 space-y-3">
+        {actionError && (
+          <p className="rounded-xl bg-red-500/90 px-3 py-2 text-xs font-medium text-white">
+            {actionError}
+          </p>
+        )}
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-blue-700 text-sm font-bold text-white">
             {creatorName.slice(0, 1)}
@@ -274,18 +364,18 @@ function FeedItem({
           </div>
           <button
             type="button"
-            className="pointer-events-auto inline-flex items-center gap-1 rounded-xl bg-hot px-3 py-2 text-xs font-bold text-hot-ink"
+            onClick={toggleFollow}
+            className={`pointer-events-auto inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold ${
+              following ? "bg-white/20 text-white" : "bg-hot text-hot-ink"
+            }`}
           >
-            <Plus className="h-3.5 w-3.5" strokeWidth={3} />
-            Follow
+            {!following && <Plus className="h-3.5 w-3.5" strokeWidth={3} />}
+            {following ? "Following" : "Follow"}
           </button>
         </div>
 
         <div className="pointer-events-auto flex items-center justify-between rounded-2xl border border-white/15 bg-[#0e1621]/55 px-2 py-2 backdrop-blur-md">
-          <ActionBtn
-            icon={<Eye className="h-5 w-5" />}
-            label={formatCount(viewCount)}
-          />
+          <ActionBtn icon={<Eye className="h-5 w-5" />} label={formatCount(viewCount)} />
           <ActionBtn
             icon={<Heart className={`h-5 w-5 ${liked ? "fill-hot text-hot" : ""}`} />}
             label={formatCount(likeCount)}
@@ -301,10 +391,15 @@ function FeedItem({
             label={formatCount(commentCount)}
             onClick={() => {
               if (!user) return onNeedAuth();
+              if (isDemo) return setActionError("Kommentare gehen bei Demo-Spielen erst nach echtem Publish.");
               setCommentsOpen(true);
             }}
           />
-          <ActionBtn icon={<Share2 className="h-5 w-5" />} label={formatCount(game.share_count)} />
+          <ActionBtn
+            icon={<Share2 className="h-5 w-5" />}
+            label={formatCount(game.share_count)}
+            onClick={shareGame}
+          />
         </div>
       </div>
 
@@ -342,6 +437,8 @@ function ActionBtn({
 export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
   const { user } = useAuth();
   const [games, setGames] = useState<Game[]>(DEMO_GAMES);
+  const [usingDemo, setUsingDemo] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -351,12 +448,27 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("games")
-        .select("*, creator:profiles(*)")
+        .select(GAME_WITH_CREATOR)
         .eq("status", "published")
         .order("created_at", { ascending: false })
         .limit(30);
 
-      if (cancelled || error || !data?.length) return;
+      if (cancelled) return;
+
+      if (error) {
+        console.warn("Feed load:", error.message);
+        setLoadError(error.message);
+        setUsingDemo(true);
+        setGames(DEMO_GAMES);
+        return;
+      }
+
+      if (!data?.length) {
+        setLoadError(null);
+        setUsingDemo(true);
+        setGames(DEMO_GAMES);
+        return;
+      }
 
       let enriched = data as Game[];
       if (user) {
@@ -373,6 +485,8 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
           saved_by_me: saved.has(g.id),
         }));
       }
+      setLoadError(null);
+      setUsingDemo(false);
       setGames(enriched);
     })();
     return () => {
@@ -392,18 +506,25 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full snap-y snap-mandatory overflow-y-scroll scrollbar-hide"
-    >
-      {games.map((game, i) => (
-        <FeedItem
-          key={game.id}
-          game={game}
-          active={i === activeIndex}
-          onNeedAuth={onNeedAuth}
-        />
-      ))}
+    <div className="relative h-full">
+      {usingDemo && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-ink/80 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur">
+          {loadError ? "Demo-Feed (DB-Fehler)" : "Demo-Feed — publish dein erstes Spiel"}
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="h-full snap-y snap-mandatory overflow-y-scroll scrollbar-hide"
+      >
+        {games.map((game, i) => (
+          <FeedItem
+            key={game.id}
+            game={game}
+            active={i === activeIndex}
+            onNeedAuth={onNeedAuth}
+          />
+        ))}
+      </div>
     </div>
   );
 }

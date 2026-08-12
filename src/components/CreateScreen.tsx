@@ -17,6 +17,7 @@ import { useAuth } from "./AuthProvider";
 import { DEMO_GAMES, formatCount } from "@/lib/demo-data";
 import type { Game } from "@/lib/types";
 import { BrandWordmark } from "./Brand";
+import { GAME_WITH_CREATOR } from "@/lib/supabase/queries";
 
 const TOOLS = [
   { id: "images", label: "Images", icon: ImageIcon },
@@ -52,7 +53,7 @@ export function CreateScreen({
     void (async () => {
       const { data } = await supabase
         .from("games")
-        .select("*, creator:profiles(*)")
+        .select(GAME_WITH_CREATOR)
         .eq("status", "published")
         .order("like_count", { ascending: false })
         .limit(8);

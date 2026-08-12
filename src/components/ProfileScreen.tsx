@@ -19,6 +19,7 @@ import { useAuth } from "./AuthProvider";
 import { formatCount } from "@/lib/demo-data";
 import type { Game } from "@/lib/types";
 import { BrandMark } from "./Brand";
+import { LIKE_WITH_GAME, SAVE_WITH_GAME, VIEW_WITH_GAME } from "@/lib/supabase/queries";
 
 type ProfileTab = "created" | "liked" | "saved" | "history";
 
@@ -53,7 +54,7 @@ export function ProfileScreen({ onOpenAuth }: { onOpenAuth: () => void }) {
         } else if (tab === "liked") {
           const { data } = await supabase
             .from("likes")
-            .select("game:games(*, creator:profiles(*))")
+            .select(LIKE_WITH_GAME)
             .eq("user_id", user.id)
             .order("created_at", { ascending: false });
           if (!cancelled) {
@@ -63,7 +64,7 @@ export function ProfileScreen({ onOpenAuth }: { onOpenAuth: () => void }) {
         } else if (tab === "saved") {
           const { data } = await supabase
             .from("saves")
-            .select("game:games(*, creator:profiles(*))")
+            .select(SAVE_WITH_GAME)
             .eq("user_id", user.id)
             .order("created_at", { ascending: false });
           if (!cancelled) {
@@ -73,7 +74,7 @@ export function ProfileScreen({ onOpenAuth }: { onOpenAuth: () => void }) {
         } else {
           const { data } = await supabase
             .from("views")
-            .select("game:games(*, creator:profiles(*))")
+            .select(VIEW_WITH_GAME)
             .eq("user_id", user.id)
             .order("created_at", { ascending: false })
             .limit(40);

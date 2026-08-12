@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Compass, Bell } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthProvider";
 import { AuthScreen } from "./AuthScreen";
@@ -35,6 +35,18 @@ function AppShell() {
   const [tab, setTab] = useState<TabId>("feed");
   const [showAuth, setShowAuth] = useState(false);
   const [createKey, setCreateKey] = useState(0);
+  const [authBanner, setAuthBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("authError");
+    if (err) {
+      setAuthBanner(decodeURIComponent(err));
+      setShowAuth(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -47,11 +59,19 @@ function AppShell() {
   if (showAuth && !user) {
     return (
       <div className="min-h-dvh">
+        {authBanner && (
+          <div className="fixed inset-x-0 top-0 z-50 bg-red-600 px-4 py-2 text-center text-sm text-white">
+            {authBanner}
+          </div>
+        )}
         <AuthScreen />
         <button
           type="button"
           className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-white/90 px-4 py-2 text-sm font-medium text-ink backdrop-blur"
-          onClick={() => setShowAuth(false)}
+          onClick={() => {
+            setShowAuth(false);
+            setAuthBanner(null);
+          }}
         >
           Continue browsing
         </button>
