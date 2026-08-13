@@ -334,15 +334,8 @@ function FeedItem({
           <p className="font-display text-2xl font-extrabold text-white">Kairos</p>
           <p className="text-xs font-medium text-white/70">Swipe the next moment</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isDemo && (
-            <span className="rounded-lg bg-hot/90 px-2.5 py-1 text-[11px] font-bold text-hot-ink">
-              Demo
-            </span>
-          )}
-          <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
-            {game.duration_seconds}s
-          </div>
+        <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+          {game.duration_seconds}s
         </div>
       </div>
 
@@ -391,7 +384,7 @@ function FeedItem({
             label={formatCount(commentCount)}
             onClick={() => {
               if (!user) return onNeedAuth();
-              if (isDemo) return setActionError("Kommentare gehen bei Demo-Spielen erst nach echtem Publish.");
+              if (isDemo) return setActionError("Sign in and publish to unlock comments on live games.");
               setCommentsOpen(true);
             }}
           />
@@ -437,8 +430,6 @@ function ActionBtn({
 export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
   const { user } = useAuth();
   const [games, setGames] = useState<Game[]>(DEMO_GAMES);
-  const [usingDemo, setUsingDemo] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -457,15 +448,11 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
 
       if (error) {
         console.warn("Feed load:", error.message);
-        setLoadError(error.message);
-        setUsingDemo(true);
         setGames(DEMO_GAMES);
         return;
       }
 
       if (!data?.length) {
-        setLoadError(null);
-        setUsingDemo(true);
         setGames(DEMO_GAMES);
         return;
       }
@@ -485,8 +472,6 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
           saved_by_me: saved.has(g.id),
         }));
       }
-      setLoadError(null);
-      setUsingDemo(false);
       setGames(enriched);
     })();
     return () => {
@@ -507,11 +492,6 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
 
   return (
     <div className="relative h-full">
-      {usingDemo && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-ink/80 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur">
-          {loadError ? "Demo-Feed (DB-Fehler)" : "Demo-Feed — publish dein erstes Spiel"}
-        </div>
-      )}
       <div
         ref={containerRef}
         className="h-full snap-y snap-mandatory overflow-y-scroll scrollbar-hide"

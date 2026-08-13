@@ -1,30 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowUp,
-  Image as ImageIcon,
-  Lightbulb,
-  Mic,
-  Music2,
-  Sparkles,
-  Smile,
-  X,
-} from "lucide-react";
+import { ArrowUp, Sparkles, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "./AuthProvider";
-import { DEMO_GAMES, formatCount } from "@/lib/demo-data";
+import { formatCount } from "@/lib/demo-data";
 import type { Game } from "@/lib/types";
 import { BrandWordmark } from "./Brand";
 import { GAME_WITH_CREATOR } from "@/lib/supabase/queries";
-
-const TOOLS = [
-  { id: "images", label: "Images", icon: ImageIcon },
-  { id: "sounds", label: "Sounds", icon: Music2 },
-  { id: "meme", label: "Meme", icon: Smile },
-  { id: "make", label: "Make Image", icon: Sparkles },
-];
+import { generateGameFromPrompt } from "@/lib/generate-game";
 
 const THEMES = ["neon", "purple-pipes", "city", "candy", "monster"] as const;
 
@@ -41,11 +26,10 @@ export function CreateScreen({
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState(30);
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("neon");
-  const [aiAssist, setAiAssist] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRemixes, setShowRemixes] = useState(true);
-  const [remixes, setRemixes] = useState<Game[]>(DEMO_GAMES.slice(0, 4));
+  const [remixes, setRemixes] = useState<Game[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,12 +41,43 @@ export function CreateScreen({
         .eq("status", "published")
         .order("like_count", { ascending: false })
         .limit(8);
-      if (!cancelled && data?.length) setRemixes(data as Game[]);
+      if (!cancelled) setRemixes((data as Game[]) ?? []);
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase]);
+
+  async function shapeFromPrompt() {
+    const idea = prompt.trim();
+    if (!idea) {
+      setError("Describe your game idea first");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setStatus("Shaping your moment…");
+    try {
+      const res = await fetch("/api/generate-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: idea }),
+      });
+      const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
+      setTitle(draft.title);
+      setTheme(draft.theme);
+      setDuration(draft.duration_seconds);
+      setStatus("Ready — adjust and publish.");
+    } catch {
+      const draft = generateGameFromPrompt(idea);
+      setTitle(draft.title);
+      setTheme(draft.theme);
+      setDuration(draft.duration_seconds);
+      setStatus("Ready — adjust and publish.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function publish(asDraft = false) {
     if (!user) {
@@ -76,22 +91,16 @@ export function CreateScreen({
     }
     setBusy(true);
     setError(null);
-    setStatus(aiAssist ? "Kairos is shaping your moment..." : "Building your game...");
+    setStatus(asDraft ? "Saving draft…" : "Publishing…");
 
-    await new Promise((r) => setTimeout(r, 900));
-
-    const gameTitle =
-      title.trim() ||
-      idea
-        .split(/[.!?]/)[0]
-        .slice(0, 48)
-        .trim() ||
-      "Untitled Moment";
+    const shaped = title.trim()
+      ? null
+      : generateGameFromPrompt(idea);
 
     const payload = {
       creator_id: user.id,
-      title: gameTitle,
-      description: idea.slice(0, 180),
+      title: title.trim() || shaped!.title,
+      description: (shaped?.description || idea).slice(0, 180),
       prompt: idea,
       duration_seconds: duration,
       status: asDraft ? "draft" : "published",
@@ -104,11 +113,7 @@ export function CreateScreen({
     setStatus(null);
 
     if (insertError) {
-      setError(
-        insertError.message.includes("relation") || insertError.code === "42P01"
-          ? "Database tables missing. Run supabase/migrations/001_initial_schema.sql in your Supabase SQL editor."
-          : insertError.message
-      );
+      setError(insertError.message);
       return;
     }
 
@@ -147,66 +152,39 @@ export function CreateScreen({
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Type your idea and start building..."
+            placeholder="e.g. A 3D flappy bird with neon pipes…"
             rows={5}
             className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
           />
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setAiAssist((v) => !v)}
-              className="flex items-center gap-2 text-muted"
+              disabled={busy}
+              onClick={shapeFromPrompt}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-xs font-bold text-accent disabled:opacity-50"
             >
-              <Lightbulb className={`h-4 w-4 ${aiAssist ? "text-accent" : ""}`} />
-              <span
-                className={`relative h-5 w-9 rounded-full transition ${
-                  aiAssist ? "bg-accent" : "bg-canvas"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                    aiAssist ? "left-4" : "left-0.5"
-                  }`}
-                />
-              </span>
+              <Sparkles className="h-3.5 w-3.5" />
+              Shape with AI
             </button>
-            <div className="flex items-center gap-2">
-              <button type="button" className="rounded-xl p-2 text-muted">
-                <Mic className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => publish(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
-              >
-                <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => publish(false)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
+            >
+              <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
+            </button>
           </div>
-        </div>
-
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {TOOLS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className="flex shrink-0 flex-col items-center gap-2 rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-ink"
-            >
-              <Icon className="h-5 w-5 text-accent" />
-              <span className="text-[11px] font-semibold">{label}</span>
-            </button>
-          ))}
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
-            <span className="text-[11px] font-medium text-muted">Title (optional)</span>
+            <span className="text-[11px] font-medium text-muted">Title</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="mt-1 w-full bg-transparent text-sm text-ink outline-none"
-              placeholder="My wild game"
+              placeholder="Auto from prompt"
             />
           </label>
           <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
@@ -230,7 +208,9 @@ export function CreateScreen({
               type="button"
               onClick={() => setTheme(t)}
               className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize ${
-                theme === t ? "bg-ink text-white" : "bg-white text-muted border border-[var(--line)]"
+                theme === t
+                  ? "bg-ink text-white"
+                  : "border border-[var(--line)] bg-white text-muted"
               }`}
             >
               {t.replace("-", " ")}
@@ -287,6 +267,11 @@ export function CreateScreen({
               exit={{ opacity: 0, height: 0 }}
               className="mt-4 grid grid-cols-2 gap-3 overflow-hidden"
             >
+              {remixes.length === 0 && (
+                <p className="col-span-2 py-6 text-center text-sm text-muted">
+                  No published games to remix yet.
+                </p>
+              )}
               {remixes.map((g) => (
                 <button
                   key={g.id}

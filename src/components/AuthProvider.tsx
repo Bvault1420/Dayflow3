@@ -26,7 +26,6 @@ type AuthContextValue = {
     password: string,
     displayName: string
   ) => Promise<{ error: string | null; needsEmailConfirm?: boolean }>;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
   resendConfirmation: (email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
@@ -189,20 +188,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [supabase]
   );
 
-  const signInWithGoogle = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: getAuthCallbackUrl("/"),
-        queryParams: {
-          access_type: "offline",
-          prompt: "select_account",
-        },
-      },
-    });
-    return { error: error?.message ?? null };
-  }, [supabase]);
-
   const resendConfirmation = useCallback(
     async (email: string) => {
       const { error } = await supabase.auth.resend({
@@ -229,7 +214,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshProfile,
       signIn,
       signUp,
-      signInWithGoogle,
       resendConfirmation,
       signOut,
     }),
@@ -241,7 +225,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshProfile,
       signIn,
       signUp,
-      signInWithGoogle,
       resendConfirmation,
       signOut,
     ]

@@ -6,31 +6,8 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { BrandMark, BrandWordmark } from "./Brand";
 
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#EA4335"
-        d="M12 10.2v3.6h5.1c-.2 1.2-.9 2.2-1.9 2.9l3.1 2.4c1.8-1.7 2.9-4.1 2.9-7 0-.7-.1-1.3-.2-1.9H12z"
-      />
-      <path
-        fill="#34A853"
-        d="M6.6 14.3l-.7.5-2.4 1.9C5.1 19.4 8.3 21.5 12 21.5c2.7 0 4.9-.9 6.5-2.4l-3.1-2.4c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1z"
-      />
-      <path
-        fill="#4A90E2"
-        d="M3.5 7.3C2.7 8.8 2.2 10.4 2.2 12s.5 3.2 1.3 4.7c0 .1 3.1-2.4 3.1-2.4-.2-.6-.3-1.2-.3-1.9s.1-1.3.3-1.9L3.5 7.3z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M12 5.3c1.5 0 2.8.5 3.8 1.5l2.8-2.8C16.9 2.3 14.7 1.5 12 1.5 8.3 1.5 5.1 3.6 3.5 7.3l3.1 2.4C7.2 7.1 9.4 5.3 12 5.3z"
-      />
-    </svg>
-  );
-}
-
 export function AuthScreen() {
-  const { signIn, signUp, signInWithGoogle, resendConfirmation } = useAuth();
+  const { signIn, signUp, resendConfirmation } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,29 +29,25 @@ export function AuthScreen() {
         if (res.error) {
           if (/confirm|verif|email_not_confirmed/i.test(res.error)) {
             setNeedsConfirm(true);
-            setError(
-              "E-Mail ist noch nicht bestätigt. Schau in Spam — oder tippe unten auf „Mail erneut senden“. Am schnellsten: in Supabase „Confirm email“ ausschalten."
-            );
+            setError("Please confirm your email first, or resend the confirmation mail below.");
           } else if (/invalid login/i.test(res.error)) {
-            setError("E-Mail oder Passwort falsch.");
+            setError("Email or password is incorrect.");
           } else {
             setError(res.error);
           }
         }
       } else {
         if (!displayName.trim()) {
-          setError("Bitte Display-Name eingeben");
+          setError("Please enter a display name");
           return;
         }
         const res = await signUp(email.trim(), password, displayName.trim());
         if (res.error) setError(res.error);
         else if (res.needsEmailConfirm) {
           setNeedsConfirm(true);
-          setInfo(
-            "Account erstellt. Bestätigungsmails vom kostenlosen Supabase-Mailer kommen oft nicht an (Spam/Limit). Am besten Confirm email in Supabase ausschalten — dann kannst du direkt einloggen."
-          );
+          setInfo("Account created. Check your inbox (and spam) for the confirmation link.");
         } else {
-          setInfo("Account erstellt — du bist eingeloggt.");
+          setInfo("Account created — you're in.");
         }
       }
     } finally {
@@ -84,7 +57,7 @@ export function AuthScreen() {
 
   async function onResend() {
     if (!email.trim()) {
-      setError("Bitte zuerst E-Mail eintragen");
+      setError("Enter your email first");
       return;
     }
     setBusy(true);
@@ -92,28 +65,7 @@ export function AuthScreen() {
     const res = await resendConfirmation(email.trim());
     setBusy(false);
     if (res.error) setError(res.error);
-    else setInfo("Bestätigungsmail wurde erneut angefordert. Spam-Ordner prüfen.");
-  }
-
-  async function onGoogle() {
-    setError(null);
-    setInfo(null);
-    setBusy(true);
-    const res = await signInWithGoogle();
-    if (res.error) {
-      setBusy(false);
-      if (/provider is not enabled/i.test(res.error)) {
-        setError(
-          "Google ist in Supabase noch aus. Gehe zu Authentication → Providers → Google → Enable und trage Client ID + Secret ein."
-        );
-      } else {
-        setError(res.error);
-      }
-      return;
-    }
-    // If OAuth URL opens but provider is broken, user sees Supabase error page.
-    // Soft hint after a short delay if still on page:
-    window.setTimeout(() => setBusy(false), 4000);
+    else setInfo("Confirmation email sent again. Check spam too.");
   }
 
   return (
@@ -131,9 +83,9 @@ export function AuthScreen() {
           </div>
           <BrandWordmark className="block text-5xl text-ink" />
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Short playable moments. Remix with AI.
+            Short playable moments.
             <br />
-            Publish what people swipe next.
+            Create, remix, and publish in seconds.
           </p>
         </div>
 
@@ -156,26 +108,6 @@ export function AuthScreen() {
                 {m === "login" ? "Log in" : "Sign up"}
               </button>
             ))}
-          </div>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onGoogle}
-            className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white py-3.5 text-sm font-bold text-ink transition hover:bg-surface-2 disabled:opacity-60"
-          >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <GoogleIcon className="h-5 w-5" />
-            )}
-            Continue with Google
-          </button>
-
-          <div className="mb-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted/70">
-            <span className="h-px flex-1 bg-[var(--line)]" />
-            or email
-            <span className="h-px flex-1 bg-[var(--line)]" />
           </div>
 
           <form onSubmit={onSubmit}>
@@ -233,7 +165,7 @@ export function AuthScreen() {
                 onClick={onResend}
                 className="mb-3 w-full rounded-xl border border-[var(--line)] bg-white py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
               >
-                Bestätigungsmail erneut senden
+                Resend confirmation email
               </button>
             )}
 
