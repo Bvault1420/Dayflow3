@@ -23,6 +23,7 @@ import {
   validateAudioFile,
   validateImageFile,
 } from "@/lib/assets";
+import { FREE_PACKS, makeKairosPulseWav } from "@/lib/free-packs";
 
 const THEMES = ["neon", "purple-pipes", "city", "candy", "monster"] as const;
 const GENRES: { id: GameGenre; label: string }[] = [
@@ -204,12 +205,15 @@ export function CreateScreen({
       setError("Describe your game idea first");
       return;
     }
-    if ((playerImage || bgImage || musicUrl) && !rightsConfirmed) {
+    const hasUploadedMedia = [playerImage, bgImage, musicUrl].some(
+      (u) => !!u && /^https?:\/\//i.test(u)
+    );
+    if (hasUploadedMedia && !rightsConfirmed) {
       setError("Confirm you have the rights to your images/music before publishing.");
       return;
     }
     const risk = copyrightRiskHint(idea, title, playerImage, musicUrl);
-    if (risk && (playerImage || bgImage || musicUrl)) {
+    if (risk && hasUploadedMedia) {
       setError(risk);
       return;
     }
@@ -235,7 +239,7 @@ export function CreateScreen({
     finalPlay.player_image = playerImage;
     finalPlay.bg_image = bgImage;
     finalPlay.music_url = musicUrl;
-    finalPlay.rights_confirmed = rightsConfirmed && !!(playerImage || bgImage || musicUrl);
+    finalPlay.rights_confirmed = hasUploadedMedia ? rightsConfirmed : true;
 
     const payload = {
       creator_id: user.id,
@@ -332,6 +336,42 @@ export function CreateScreen({
             ))}
           </ul>
 
+          <div className="mt-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted">
+              Free Kairos packs (safe)
+            </p>
+            <p className="mt-1 text-[11px] text-muted">
+              Original Kairos art — no copyright risk. Apply without the rights checkbox.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {FREE_PACKS.map((pack) => (
+                <button
+                  key={pack.id}
+                  type="button"
+                  onClick={() => {
+                    setPlayerImage(pack.player_image);
+                    setBgImage(pack.bg_image);
+                    setStatus(`Applied free pack: ${pack.label}`);
+                  }}
+                  className="rounded-xl border border-[var(--line)] bg-canvas px-3 py-2 text-xs font-semibold text-ink"
+                >
+                  {pack.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setMusicUrl(makeKairosPulseWav());
+                  setStatus("Added free Kairos Pulse music loop");
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] bg-canvas px-3 py-2 text-xs font-semibold text-ink"
+              >
+                <Music2 className="h-3.5 w-3.5 text-accent" />
+                Free pulse music
+              </button>
+            </div>
+          </div>
+
           <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl bg-canvas px-3 py-3">
             <input
               type="checkbox"
@@ -349,7 +389,7 @@ export function CreateScreen({
 
           {!rightsConfirmed && (
             <p className="mt-2 text-[11px] font-semibold text-hot">
-              Check the box above to unlock Player / Background / Music uploads.
+              Check the box to upload your own Player / Background / Music files.
             </p>
           )}
 
