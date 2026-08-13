@@ -18,6 +18,8 @@ function AppShell() {
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [createKey, setCreateKey] = useState(0);
+  const [feedKey, setFeedKey] = useState(0);
+  const [focusGameId, setFocusGameId] = useState<string | null>(null);
   const [authBanner, setAuthBanner] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,6 +32,13 @@ function AppShell() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      setShowAuth(false);
+      setAuthBanner(null);
+    }
+  }, [user]);
 
   if (loading) {
     return (
@@ -76,12 +85,20 @@ function AppShell() {
       requireAuth(next);
       return;
     }
+    if (next === "feed") setFocusGameId(null);
     setTab(next);
+  }
+
+  function openGame(gameId: string) {
+    setFocusGameId(gameId);
+    setFeedKey((k) => k + 1);
+    setShowSettings(false);
+    setTab("feed");
   }
 
   return (
     <div className="app-shell relative mx-auto min-h-dvh w-full max-w-lg overflow-hidden text-ink sm:my-4 sm:min-h-[min(100dvh-2rem,900px)] sm:rounded-shell">
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden bg-canvas">
         {showSettings ? (
           <SettingsScreen
             onBack={() => {
@@ -91,8 +108,15 @@ function AppShell() {
           />
         ) : (
           <>
-            {tab === "feed" && <Feed onNeedAuth={() => setShowAuth(true)} />}
-            {tab === "explore" && <ExploreScreen />}
+            {tab === "feed" && (
+              <Feed
+                key={feedKey}
+                refreshKey={feedKey}
+                focusGameId={focusGameId}
+                onNeedAuth={() => setShowAuth(true)}
+              />
+            )}
+            {tab === "explore" && <ExploreScreen onOpenGame={openGame} />}
             {tab === "notifications" && (
               <NotificationsScreen onRequireAuth={() => setShowAuth(true)} />
             )}
@@ -100,6 +124,7 @@ function AppShell() {
               <ProfileScreen
                 onRequireAuth={() => setShowAuth(true)}
                 onOpenSettings={() => setShowSettings(true)}
+                onOpenGame={openGame}
               />
             )}
             {tab === "create" && (
@@ -108,6 +133,8 @@ function AppShell() {
                 onClose={() => setTab("feed")}
                 onPublished={() => {
                   setCreateKey((k) => k + 1);
+                  setFeedKey((k) => k + 1);
+                  setFocusGameId(null);
                   setTab("profile");
                 }}
               />

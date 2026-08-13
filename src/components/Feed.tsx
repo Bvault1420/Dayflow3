@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   Eye,
@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { DEMO_GAMES, THEME_STYLES, formatCount } from "@/lib/demo-data";
+import { THEME_STYLES, formatCount } from "@/lib/demo-data";
 import type { Comment, Game } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { COMMENT_WITH_PROFILE, GAME_WITH_CREATOR } from "@/lib/supabase/queries";
@@ -20,18 +20,28 @@ import { useAuth } from "./AuthProvider";
 function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
   const theme = THEME_STYLES[game.theme] ?? THEME_STYLES.neon;
   const [score, setScore] = useState(0);
+  const [pulse, setPulse] = useState(0);
 
   useEffect(() => {
     if (!playing) return;
     setScore(0);
-    const id = window.setInterval(() => {
-      setScore((s) => s + 1);
-    }, 900);
-    return () => window.clearInterval(id);
+    setPulse(0);
   }, [playing, game.id]);
 
+  function tap() {
+    if (!playing) return;
+    setScore((s) => s + 1);
+    setPulse((p) => p + 1);
+  }
+
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ background: theme.bg }}>
+    <button
+      type="button"
+      onClick={tap}
+      className="absolute inset-0 overflow-hidden text-left"
+      style={{ background: theme.bg }}
+      aria-label="Tap to play"
+    >
       <div className="absolute inset-0 opacity-40">
         <div className="absolute left-[12%] top-[22%] h-36 w-14 rotate-6 rounded-lg bg-sky-300/70" />
         <div className="absolute right-[16%] top-[30%] h-48 w-14 -rotate-3 rounded-lg bg-orange-300/65" />
@@ -42,12 +52,17 @@ function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
           <div className="absolute bottom-28 left-1/2 h-24 w-10 -translate-x-1/2 rounded-t-lg bg-[#1a1a22]" />
         </div>
       )}
-      <div className="absolute left-1/2 top-[16%] -translate-x-1/2 font-display text-7xl font-extrabold text-white/95">
+      <motion.div
+        key={pulse}
+        initial={{ scale: 1.15, opacity: 0.7 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="absolute left-1/2 top-[16%] -translate-x-1/2 font-display text-7xl font-extrabold text-white/95"
+      >
         {score}
-      </div>
+      </motion.div>
       <div className="absolute inset-x-0 top-[40%] text-center">
         <span className="rounded-md bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-white backdrop-blur">
-          {theme.label}
+          {playing ? "Tap to score" : theme.label}
         </span>
       </div>
       <div className="absolute bottom-40 left-5 h-16 w-16 rounded-2xl border border-white/25 bg-white/10" />
@@ -56,7 +71,7 @@ function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
           <div key={i} className="h-11 w-11 rounded-2xl border border-white/20 bg-white/10" />
         ))}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -72,22 +87,26 @@ function CommentsSheet({
   onCommented: () => void;
 }) {
   const { user } = useAuth();
+  const supabase = useMemo(() => createClient(), []);
   const [comments, setComments] = useState<Comment[]>([]);
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
-  const supabase = createClient();
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setError(null);
     (async () => {
-      const { data } = await supabase
+      const { data, error: err } = await supabase
         .from("comments")
         .select(COMMENT_WITH_PROFILE)
         .eq("game_id", game.id)
         .order("created_at", { ascending: false })
         .limit(40);
-      if (!cancelled) setComments((data as Comment[]) ?? []);
+      if (cancelled) return;
+      if (err) setError(err.message);
+      setComments((data as Comment[]) ?? []);
     })();
     return () => {
       cancelled = true;
@@ -97,13 +116,18 @@ function CommentsSheet({
   async function submit() {
     if (!user || !body.trim()) return;
     setLoading(true);
-    const { data, error } = await supabase
+    setError(null);
+    const { data, error: err } = await supabase
       .from("comments")
       .insert({ game_id: game.id, user_id: user.id, body: body.trim() })
       .select(COMMENT_WITH_PROFILE)
       .single();
     setLoading(false);
-    if (!error && data) {
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    if (data) {
       setComments((c) => [data as Comment, ...c]);
       setBody("");
       onCommented();
@@ -137,9 +161,10 @@ function CommentsSheet({
               </button>
             </div>
             <div className="max-h-64 space-y-3 overflow-y-auto px-4 py-3">
-              {comments.length === 0 && (
+              {comments.length === 0 && !error && (
                 <p className="py-8 text-center text-sm text-muted">No comments yet</p>
               )}
+              {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
               {comments.map((c) => (
                 <div key={c.id} className="flex gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-xs font-bold text-accent">
@@ -161,6 +186,9 @@ function CommentsSheet({
                 placeholder="Add a comment..."
                 className="flex-1 rounded-xl border border-[var(--line)] bg-canvas px-4 py-2.5 text-sm text-ink outline-none"
                 maxLength={500}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submit();
+                }}
               />
               <button
                 type="button"
@@ -188,7 +216,7 @@ function FeedItem({
   onNeedAuth: () => void;
 }) {
   const { user } = useAuth();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [liked, setLiked] = useState(!!game.liked_by_me);
   const [saved, setSaved] = useState(!!game.saved_by_me);
   const [likeCount, setLikeCount] = useState(game.like_count);
@@ -198,22 +226,31 @@ function FeedItem({
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [following, setFollowing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const viewed = useRef(false);
-  const isDemo = game.id.startsWith("demo-");
+  const isOwn = !!user && game.creator_id === user.id;
+
+  useEffect(() => {
+    setLiked(!!game.liked_by_me);
+    setSaved(!!game.saved_by_me);
+    setLikeCount(game.like_count);
+    setSaveCount(game.save_count);
+    setCommentCount(game.comment_count);
+    setViewCount(game.view_count);
+  }, [game]);
 
   useEffect(() => {
     if (!active || viewed.current) return;
     viewed.current = true;
     setViewCount((v) => v + 1);
-    if (isDemo) return;
     void supabase.rpc("record_view", {
       p_game_id: game.id,
       p_user_id: user?.id ?? null,
     });
-  }, [active, game.id, isDemo, supabase, user?.id]);
+  }, [active, game.id, supabase, user?.id]);
 
   useEffect(() => {
-    if (!user || isDemo || !game.creator_id) return;
+    if (!user || !game.creator_id || isOwn) return;
     let cancelled = false;
     void (async () => {
       const { data } = await supabase
@@ -227,65 +264,76 @@ function FeedItem({
     return () => {
       cancelled = true;
     };
-  }, [user, isDemo, game.creator_id, supabase]);
+  }, [user, game.creator_id, isOwn, supabase]);
 
   async function toggleLike() {
     if (!user) return onNeedAuth();
+    if (busy) return;
+    setBusy(true);
     setActionError(null);
-    if (isDemo) {
-      setLiked((v) => !v);
-      setLikeCount((c) => (liked ? c - 1 : c + 1));
-      return;
-    }
-    if (liked) {
+    const next = !liked;
+    setLiked(next);
+    setLikeCount((c) => (next ? c + 1 : Math.max(0, c - 1)));
+    if (next) {
+      const { error } = await supabase
+        .from("likes")
+        .insert({ user_id: user.id, game_id: game.id });
+      if (error) {
+        setLiked(false);
+        setLikeCount((c) => Math.max(0, c - 1));
+        setActionError(error.message);
+      }
+    } else {
       const { error } = await supabase
         .from("likes")
         .delete()
         .eq("user_id", user.id)
         .eq("game_id", game.id);
-      if (error) return setActionError(error.message);
-      setLiked(false);
-      setLikeCount((c) => Math.max(0, c - 1));
-    } else {
-      const { error } = await supabase
-        .from("likes")
-        .insert({ user_id: user.id, game_id: game.id });
-      if (error) return setActionError(error.message);
-      setLiked(true);
-      setLikeCount((c) => c + 1);
+      if (error) {
+        setLiked(true);
+        setLikeCount((c) => c + 1);
+        setActionError(error.message);
+      }
     }
+    setBusy(false);
   }
 
   async function toggleSave() {
     if (!user) return onNeedAuth();
+    if (busy) return;
+    setBusy(true);
     setActionError(null);
-    if (isDemo) {
-      setSaved((v) => !v);
-      setSaveCount((c) => (saved ? c - 1 : c + 1));
-      return;
-    }
-    if (saved) {
+    const next = !saved;
+    setSaved(next);
+    setSaveCount((c) => (next ? c + 1 : Math.max(0, c - 1)));
+    if (next) {
+      const { error } = await supabase
+        .from("saves")
+        .insert({ user_id: user.id, game_id: game.id });
+      if (error) {
+        setSaved(false);
+        setSaveCount((c) => Math.max(0, c - 1));
+        setActionError(error.message);
+      }
+    } else {
       const { error } = await supabase
         .from("saves")
         .delete()
         .eq("user_id", user.id)
         .eq("game_id", game.id);
-      if (error) return setActionError(error.message);
-      setSaved(false);
-      setSaveCount((c) => Math.max(0, c - 1));
-    } else {
-      const { error } = await supabase
-        .from("saves")
-        .insert({ user_id: user.id, game_id: game.id });
-      if (error) return setActionError(error.message);
-      setSaved(true);
-      setSaveCount((c) => c + 1);
+      if (error) {
+        setSaved(true);
+        setSaveCount((c) => c + 1);
+        setActionError(error.message);
+      }
     }
+    setBusy(false);
   }
 
   async function toggleFollow() {
     if (!user) return onNeedAuth();
-    if (isDemo || !game.creator_id || game.creator_id === user.id) return;
+    if (!game.creator_id || isOwn || busy) return;
+    setBusy(true);
     setActionError(null);
     if (following) {
       const { error } = await supabase
@@ -293,16 +341,17 @@ function FeedItem({
         .delete()
         .eq("follower_id", user.id)
         .eq("following_id", game.creator_id);
-      if (error) return setActionError(error.message);
-      setFollowing(false);
+      if (error) setActionError(error.message);
+      else setFollowing(false);
     } else {
       const { error } = await supabase.from("follows").insert({
         follower_id: user.id,
         following_id: game.creator_id,
       });
-      if (error) return setActionError(error.message);
-      setFollowing(true);
+      if (error) setActionError(error.message);
+      else setFollowing(true);
     }
+    setBusy(false);
   }
 
   async function shareGame() {
@@ -355,16 +404,18 @@ function FeedItem({
             </h2>
             <p className="text-sm text-white/70">{creatorName}</p>
           </div>
-          <button
-            type="button"
-            onClick={toggleFollow}
-            className={`pointer-events-auto inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold ${
-              following ? "bg-white/20 text-white" : "bg-hot text-hot-ink"
-            }`}
-          >
-            {!following && <Plus className="h-3.5 w-3.5" strokeWidth={3} />}
-            {following ? "Following" : "Follow"}
-          </button>
+          {!isOwn && (
+            <button
+              type="button"
+              onClick={toggleFollow}
+              className={`pointer-events-auto inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold ${
+                following ? "bg-white/20 text-white" : "bg-hot text-hot-ink"
+              }`}
+            >
+              {!following && <Plus className="h-3.5 w-3.5" strokeWidth={3} />}
+              {following ? "Following" : "Follow"}
+            </button>
+          )}
         </div>
 
         <div className="pointer-events-auto flex items-center justify-between rounded-2xl border border-white/15 bg-[#0e1621]/55 px-2 py-2 backdrop-blur-md">
@@ -384,7 +435,6 @@ function FeedItem({
             label={formatCount(commentCount)}
             onClick={() => {
               if (!user) return onNeedAuth();
-              if (isDemo) return setActionError("Sign in and publish to unlock comments on live games.");
               setCommentsOpen(true);
             }}
           />
@@ -427,14 +477,25 @@ function ActionBtn({
   );
 }
 
-export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
+export function Feed({
+  onNeedAuth,
+  refreshKey = 0,
+  focusGameId = null,
+}: {
+  onNeedAuth: () => void;
+  refreshKey?: number;
+  focusGameId?: string | null;
+}) {
   const { user } = useAuth();
-  const [games, setGames] = useState<Game[]>(DEMO_GAMES);
+  const [games, setGames] = useState<Game[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     (async () => {
       const supabase = createClient();
       const { data, error } = await supabase
@@ -442,23 +503,20 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
         .select(GAME_WITH_CREATOR)
         .eq("status", "published")
         .order("created_at", { ascending: false })
-        .limit(30);
+        .limit(40);
 
       if (cancelled) return;
 
       if (error) {
         console.warn("Feed load:", error.message);
-        setGames(DEMO_GAMES);
+        setLoadError(error.message);
+        setGames([]);
+        setLoading(false);
         return;
       }
 
-      if (!data?.length) {
-        setGames(DEMO_GAMES);
-        return;
-      }
-
-      let enriched = data as Game[];
-      if (user) {
+      let enriched = (data as Game[]) ?? [];
+      if (user && enriched.length) {
         const ids = enriched.map((g) => g.id);
         const [{ data: likes }, { data: saves }] = await Promise.all([
           supabase.from("likes").select("game_id").eq("user_id", user.id).in("game_id", ids),
@@ -472,26 +530,60 @@ export function Feed({ onNeedAuth }: { onNeedAuth: () => void }) {
           saved_by_me: saved.has(g.id),
         }));
       }
+
+      if (focusGameId) {
+        const idx = enriched.findIndex((g) => g.id === focusGameId);
+        if (idx > 0) {
+          const [picked] = enriched.splice(idx, 1);
+          enriched = [picked, ...enriched];
+        }
+      }
+
+      setLoadError(null);
       setGames(enriched);
+      setLoading(false);
+      setActiveIndex(0);
     })();
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, refreshKey, focusGameId]);
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || loading) return;
+    el.scrollTop = 0;
     const onScroll = () => {
-      const idx = Math.round(el.scrollTop / el.clientHeight);
+      const idx = Math.round(el.scrollTop / Math.max(el.clientHeight, 1));
       setActiveIndex(idx);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [loading, games.length]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center bg-ink">
+        <div className="h-10 w-10 animate-pulse rounded-2xl bg-accent/80" />
+      </div>
+    );
+  }
+
+  if (!games.length) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-canvas px-8 text-center">
+        <p className="font-display text-2xl font-bold text-ink">No games yet</p>
+        <p className="mt-2 max-w-xs text-sm text-muted">
+          {loadError
+            ? "Couldn’t load the feed. Check your connection and try again."
+            : "Create the first short game and it will show up here."}
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full bg-ink">
       <div
         ref={containerRef}
         className="h-full snap-y snap-mandatory overflow-y-scroll scrollbar-hide"

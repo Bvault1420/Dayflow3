@@ -27,15 +27,31 @@ type Tab = "created" | "liked" | "saved" | "history";
 export function ProfileScreen({
   onRequireAuth,
   onOpenSettings,
+  onOpenGame,
 }: {
   onRequireAuth: () => void;
   onOpenSettings: () => void;
+  onOpenGame: (gameId: string) => void;
 }) {
   const { user, profile } = useAuth();
   const [tab, setTab] = useState<Tab>("created");
   const [items, setItems] = useState<Game[]>([]);
   const [createdCount, setCreatedCount] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setCreatedCount(0);
+      return;
+    }
+    let cancelled = false;
+    void fetchCreatedGames(user.id).then((rows) => {
+      if (!cancelled) setCreatedCount(rows.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -142,7 +158,7 @@ export function ProfileScreen({
         {[
           ["Followers", profile?.follower_count ?? 0],
           ["Following", profile?.following_count ?? 0],
-          ["Games", createdCount || (tab === "created" ? items.length : "—")],
+          ["Games", createdCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-[var(--line)] bg-white px-2 py-3">
             <p className="font-display text-lg font-extrabold text-ink">{value}</p>
@@ -188,12 +204,14 @@ export function ProfileScreen({
           </p>
         ) : (
           items.map((game, index) => (
-            <motion.article
+            <motion.button
+              type="button"
               key={`${tab}-${game.id}`}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.04 }}
-              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white"
+              onClick={() => onOpenGame(game.id)}
+              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
             >
               <div
                 className="aspect-[4/5] w-full"
@@ -207,7 +225,7 @@ export function ProfileScreen({
                   {formatCount(game.view_count)} plays · {formatCount(game.like_count)} likes
                 </p>
               </div>
-            </motion.article>
+            </motion.button>
           ))
         )}
       </div>

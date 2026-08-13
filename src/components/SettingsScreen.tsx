@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, Bell, Eye, Lock, LogOut, Mail, Shield, User } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -8,7 +8,7 @@ import { BrandMark } from "./Brand";
 
 export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const { user, profile, signOut, refreshProfile } = useAuth();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [displayName, setDisplayName] = useState(profile?.display_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [username, setUsername] = useState(profile?.username ?? "");
@@ -187,7 +187,10 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
         <button
           type="button"
-          onClick={() => signOut()}
+          onClick={async () => {
+            await signOut();
+            onBack();
+          }}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white py-3 text-sm font-semibold text-ink"
         >
           <LogOut className="h-4 w-4" />
@@ -205,7 +208,7 @@ function ToggleRow({
   onChange,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   value: boolean;
   onChange: (v: boolean) => void;
 }) {

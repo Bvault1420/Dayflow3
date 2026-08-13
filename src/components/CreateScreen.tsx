@@ -120,7 +120,6 @@ export function CreateScreen({
     setPrompt("");
     setTitle("");
     onPublished();
-    if (!asDraft) onClose();
   }
 
   return (

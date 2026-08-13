@@ -8,7 +8,7 @@ import type { Game } from "@/lib/types";
 import { formatCount } from "@/lib/demo-data";
 import { BrandWordmark } from "./Brand";
 
-export function ExploreScreen() {
+export function ExploreScreen({ onOpenGame }: { onOpenGame: (gameId: string) => void }) {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,12 +43,14 @@ export function ExploreScreen() {
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-3">
           {games.map((game, i) => (
-            <motion.article
+            <motion.button
+              type="button"
               key={game.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white"
+              onClick={() => onOpenGame(game.id)}
+              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
             >
               <div
                 className="aspect-[4/5] w-full"
@@ -63,7 +65,7 @@ export function ExploreScreen() {
                   {formatCount(game.like_count)} likes
                 </p>
               </div>
-            </motion.article>
+            </motion.button>
           ))}
         </div>
       )}
