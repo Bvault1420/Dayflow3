@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ArrowUp, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowUp, ImagePlus, Music2, Sparkles, Trash2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "./AuthProvider";
@@ -17,6 +17,12 @@ import {
   type PlayConfig,
 } from "@/lib/generate-game";
 import { PlayableGame } from "./PlayableGame";
+import {
+  RIGHTS_COPY,
+  copyrightRiskHint,
+  validateAudioFile,
+  validateImageFile,
+} from "@/lib/assets";
 
 const THEMES = ["neon", "purple-pipes", "city", "candy", "monster"] as const;
 const GENRES: { id: GameGenre; label: string }[] = [
@@ -36,13 +42,22 @@ export function CreateScreen({
 }) {
   const { user, profile } = useAuth();
   const supabase = useMemo(() => createClient(), []);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const bgInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState(30);
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("neon");
   const [genre, setGenre] = useState<GameGenre>("flappy");
   const [play, setPlay] = useState<PlayConfig | null>(null);
+  const [playerImage, setPlayerImage] = useState<string | null>(null);
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showRemixes, setShowRemixes] = useState(true);
   const [remixes, setRemixes] = useState<Game[]>([]);
@@ -50,14 +65,21 @@ export function CreateScreen({
 
   const preview = useMemo(() => {
     if (!prompt.trim() && !play) return null;
-    return buildPlayConfig({
+    const base = buildPlayConfig({
       prompt: prompt.trim() || play?.title || "arcade moment",
       title: title || play?.title,
       theme,
       duration_seconds: duration,
       genre,
     });
-  }, [play, prompt, title, theme, duration, genre]);
+    return {
+      ...base,
+      player_image: playerImage,
+      bg_image: bgImage,
+      music_url: musicUrl,
+      rights_confirmed: rightsConfirmed,
+    };
+  }, [play, prompt, title, theme, duration, genre, playerImage, bgImage, musicUrl, rightsConfirmed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,14 +118,64 @@ export function CreateScreen({
     setPlay(next);
   }
 
+  async function uploadAsset(kind: "image" | "audio", file: File, slot: "player" | "bg" | "music") {
+    if (!user) {
+      setError("Sign in to upload images or music");
+      return;
+    }
+    if (!rightsConfirmed) {
+      setError("Confirm the rights checkbox before uploading media.");
+      return;
+    }
+    const validation =
+      kind === "image" ? validateImageFile(file) : validateAudioFile(file);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    const risk = copyrightRiskHint(file.name, prompt, title);
+    if (risk) {
+      setError(risk);
+      return;
+    }
+
+    setUploading(slot);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("kind", kind);
+      body.set("rightsConfirmed", "true");
+      body.set("label", `${title} ${prompt} ${file.name}`);
+      const res = await fetch("/api/upload-asset", { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Upload failed");
+        return;
+      }
+      if (slot === "player") setPlayerImage(data.url);
+      if (slot === "bg") setBgImage(data.url);
+      if (slot === "music") setMusicUrl(data.url);
+      setStatus(
+        slot === "music" ? "Music added to your game." : "Image added to your game."
+      );
+    } catch {
+      setError("Upload failed. Try again.");
+    } finally {
+      setUploading(null);
+    }
+  }
+
   async function shapeFromPrompt() {
     const idea = prompt.trim();
     if (!idea) {
       setError("Describe your game idea first");
       return;
     }
+    const risk = copyrightRiskHint(idea, title);
+    if (risk) setError(risk);
     setBusy(true);
-    setError(null);
+    if (!risk) setError(null);
     setStatus("Building a real playable game…");
     try {
       const res = await fetch("/api/generate-game", {
@@ -113,7 +185,7 @@ export function CreateScreen({
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
       applyDraft(draft);
-      setStatus(`Ready — ${draft.play?.genre || "arcade"} game. Try it below, then publish.`);
+      setStatus(`Ready — ${draft.play?.genre || "arcade"} game. Add images/music if you want.`);
     } catch {
       applyDraft(generateGameFromPrompt(idea));
       setStatus("Ready — try the game below, then publish.");
@@ -132,6 +204,16 @@ export function CreateScreen({
       setError("Describe your game idea first");
       return;
     }
+    if ((playerImage || bgImage || musicUrl) && !rightsConfirmed) {
+      setError("Confirm you have the rights to your images/music before publishing.");
+      return;
+    }
+    const risk = copyrightRiskHint(idea, title, playerImage, musicUrl);
+    if (risk && (playerImage || bgImage || musicUrl)) {
+      setError(risk);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setStatus(asDraft ? "Saving draft…" : "Publishing playable game…");
@@ -150,6 +232,10 @@ export function CreateScreen({
     finalPlay.genre = genre;
     finalPlay.duration_seconds = duration;
     finalPlay.title = title.trim() || shaped.title;
+    finalPlay.player_image = playerImage;
+    finalPlay.bg_image = bgImage;
+    finalPlay.music_url = musicUrl;
+    finalPlay.rights_confirmed = rightsConfirmed && !!(playerImage || bgImage || musicUrl);
 
     const payload = {
       creator_id: user.id,
@@ -159,7 +245,7 @@ export function CreateScreen({
       duration_seconds: duration,
       status: asDraft ? "draft" : "published",
       theme,
-      thumbnail_url: null,
+      thumbnail_url: playerImage || bgImage || null,
       play_url: encodePlayConfig(finalPlay),
     };
 
@@ -175,6 +261,10 @@ export function CreateScreen({
     setPrompt("");
     setTitle("");
     setPlay(null);
+    setPlayerImage(null);
+    setBgImage(null);
+    setMusicUrl(null);
+    setRightsConfirmed(false);
     onPublished();
   }
 
@@ -200,7 +290,7 @@ export function CreateScreen({
         >
           Describe a moment.
           <br />
-          <span className="text-accent">Get a real playable game.</span>
+          <span className="text-accent">Add your art & music.</span>
         </motion.p>
 
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4 shadow-[0_12px_40px_rgba(14,22,33,0.06)]">
@@ -232,17 +322,110 @@ export function CreateScreen({
           </div>
         </div>
 
+        {/* Assets */}
+        <section className="mt-4 rounded-2xl border border-[var(--line)] bg-white p-4">
+          <h3 className="text-sm font-bold text-ink">Images & music</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">{RIGHTS_COPY.body}</p>
+
+          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl bg-canvas px-3 py-3">
+            <input
+              type="checkbox"
+              checked={rightsConfirmed}
+              onChange={(e) => setRightsConfirmed(e.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span className="text-xs font-medium leading-relaxed text-ink">
+              {RIGHTS_COPY.checkbox}{" "}
+              <a href="/terms" className="font-semibold text-accent underline-offset-2 hover:underline">
+                Terms
+              </a>
+            </span>
+          </label>
+
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <AssetButton
+              label="Player"
+              icon={<ImagePlus className="h-4 w-4" />}
+              preview={playerImage}
+              busy={uploading === "player"}
+              disabled={!rightsConfirmed || !!uploading}
+              onPick={() => imageInputRef.current?.click()}
+              onClear={() => setPlayerImage(null)}
+            />
+            <AssetButton
+              label="Background"
+              icon={<ImagePlus className="h-4 w-4" />}
+              preview={bgImage}
+              busy={uploading === "bg"}
+              disabled={!rightsConfirmed || !!uploading}
+              onPick={() => bgInputRef.current?.click()}
+              onClear={() => setBgImage(null)}
+            />
+            <AssetButton
+              label="Music"
+              icon={<Music2 className="h-4 w-4" />}
+              preview={musicUrl ? "music" : null}
+              busy={uploading === "music"}
+              disabled={!rightsConfirmed || !!uploading}
+              onPick={() => audioInputRef.current?.click()}
+              onClear={() => setMusicUrl(null)}
+            />
+          </div>
+
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadAsset("image", f, "player");
+            }}
+          />
+          <input
+            ref={bgInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadAsset("image", f, "bg");
+            }}
+          />
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg,.m4a"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadAsset("audio", f, "music");
+            }}
+          />
+
+          <p className="mt-2 text-[11px] text-muted">
+            Allowed: your own photos/art, CC0 / public-domain, or licensed packs. Not allowed:
+            commercial songs, movie/game characters, brand logos, or other people’s photos without
+            permission.
+          </p>
+        </section>
+
         {preview && (
           <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
             <div className="relative h-64 w-full">
               <PlayableGame
-                key={`${preview.genre}-${preview.theme}-${preview.duration_seconds}`}
+                key={`${preview.genre}-${preview.theme}-${preview.player_image}-${preview.bg_image}-${preview.music_url}`}
                 config={preview}
                 playing
               />
             </div>
             <p className="border-t border-white/10 px-3 py-2 text-[11px] font-semibold text-white/70">
-              Live preview · {preview.genre} · {preview.instruction}
+              Live preview · {preview.genre}
+              {preview.music_url ? " · music on" : ""}
+              {preview.player_image || preview.bg_image ? " · custom art" : ""}
             </p>
           </div>
         )}
@@ -398,6 +581,57 @@ export function CreateScreen({
           )}
         </AnimatePresence>
       </div>
+    </div>
+  );
+}
+
+function AssetButton({
+  label,
+  icon,
+  preview,
+  busy,
+  disabled,
+  onPick,
+  onClear,
+}: {
+  label: string;
+  icon: ReactNode;
+  preview: string | null;
+  busy: boolean;
+  disabled: boolean;
+  onPick: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-[var(--line)] bg-canvas">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onPick}
+        className="flex h-24 w-full flex-col items-center justify-center gap-1 text-xs font-semibold text-ink disabled:opacity-40"
+      >
+        {preview && preview !== "music" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : preview === "music" ? (
+          <Music2 className="h-6 w-6 text-accent" />
+        ) : (
+          icon
+        )}
+        <span className={`relative z-10 ${preview && preview !== "music" ? "rounded bg-black/50 px-1.5 py-0.5 text-white" : ""}`}>
+          {busy ? "Uploading…" : label}
+        </span>
+      </button>
+      {preview && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="absolute right-1 top-1 z-10 rounded-lg bg-white/90 p-1 text-ink"
+          aria-label={`Remove ${label}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }

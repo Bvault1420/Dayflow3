@@ -68,6 +68,34 @@ export function PlayableGame({ config, playing, className }: Props) {
     let shake = 0;
     let flash = 0;
     let runX = 0;
+    let playerImg: HTMLImageElement | null = null;
+    let bgImg: HTMLImageElement | null = null;
+    let audio: HTMLAudioElement | null = null;
+
+    if (config.player_image) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        playerImg = img;
+      };
+      img.src = config.player_image;
+    }
+    if (config.bg_image) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        bgImg = img;
+      };
+      img.src = config.bg_image;
+    }
+    if (config.music_url && playing) {
+      audio = new Audio(config.music_url);
+      audio.loop = true;
+      audio.volume = 0.45;
+      void audio.play().catch(() => {
+        /* autoplay may be blocked until tap */
+      });
+    }
 
     const speed = 2.4 * config.speed;
     const gravity = config.gravity * config.speed;
@@ -124,6 +152,7 @@ export function PlayableGame({ config, playing, className }: Props) {
         if (state.over) resetRound(false);
         return;
       }
+      if (audio && audio.paused) void audio.play().catch(() => undefined);
       state.started = true;
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left;
@@ -168,18 +197,45 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
 
-      // floating decor
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = config.obstacle_color;
-      for (let i = 0; i < 5; i++) {
-        const x = ((i * 97 + runX * 0.2) % (W + 80)) - 40;
-        const y = (i * 73) % (H * 0.7);
-        ctx.fillRect(x, y, 18 + (i % 3) * 10, 70 + (i % 4) * 20);
+      if (bgImg) {
+        ctx.globalAlpha = 0.55;
+        // cover
+        const scale = Math.max(W / bgImg.width, H / bgImg.height);
+        const dw = bgImg.width * scale;
+        const dh = bgImg.height * scale;
+        ctx.drawImage(bgImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(8,14,28,0.35)";
+        ctx.fillRect(0, 0, W, H);
+      } else {
+        // floating decor
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = config.obstacle_color;
+        for (let i = 0; i < 5; i++) {
+          const x = ((i * 97 + runX * 0.2) % (W + 80)) - 40;
+          const y = (i * 73) % (H * 0.7);
+          ctx.fillRect(x, y, 18 + (i % 3) * 10, 70 + (i % 4) * 20);
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
     };
 
     const drawPlayer = (x: number, y: number, r = 18) => {
+      if (playerImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(playerImg, x - r - 2, y - r - 2, (r + 2) * 2, (r + 2) * 2);
+        ctx.restore();
+        ctx.strokeStyle = config.player_color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+        ctx.stroke();
+        return;
+      }
       ctx.shadowColor = config.player_color;
       ctx.shadowBlur = 16;
       ctx.fillStyle = config.player_color;
@@ -502,6 +558,11 @@ export function PlayableGame({ config, playing, className }: Props) {
       cancelAnimationFrame(raf);
       canvas.removeEventListener("pointerdown", pointerDown);
       ro.disconnect();
+      if (audio) {
+        audio.pause();
+        audio.src = "";
+        audio = null;
+      }
     };
   }, [config, playing]);
 

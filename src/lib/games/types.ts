@@ -20,6 +20,11 @@ export type PlayConfig = {
   bg_top: string;
   bg_bottom: string;
   instruction: string;
+  /** Optional creator-uploaded assets (must be rights-cleared). */
+  player_image?: string | null;
+  bg_image?: string | null;
+  music_url?: string | null;
+  rights_confirmed?: boolean;
 };
 
 export type GeneratedGameDraft = {
