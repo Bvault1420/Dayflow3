@@ -326,6 +326,11 @@ export function CreateScreen({
         <section className="mt-4 rounded-2xl border border-[var(--line)] bg-white p-4">
           <h3 className="text-sm font-bold text-ink">Images & music</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted">{RIGHTS_COPY.body}</p>
+          <ul className="mt-2 space-y-1 text-[11px] text-muted">
+            {RIGHTS_COPY.tips.map((tip) => (
+              <li key={tip}>• {tip}</li>
+            ))}
+          </ul>
 
           <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl bg-canvas px-3 py-3">
             <input
@@ -341,6 +346,12 @@ export function CreateScreen({
               </a>
             </span>
           </label>
+
+          {!rightsConfirmed && (
+            <p className="mt-2 text-[11px] font-semibold text-hot">
+              Check the box above to unlock Player / Background / Music uploads.
+            </p>
+          )}
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             <AssetButton
@@ -407,9 +418,8 @@ export function CreateScreen({
           />
 
           <p className="mt-2 text-[11px] text-muted">
-            Allowed: your own photos/art, CC0 / public-domain, or licensed packs. Not allowed:
-            commercial songs, movie/game characters, brand logos, or other people’s photos without
-            permission.
+            Max 3 MB images · max 5 MB audio. Files go to your private creator folder and are used
+            only in your published game.
           </p>
         </section>
 

@@ -19,12 +19,17 @@ export const AUDIO_TYPES = new Set([
   "audio/x-wav",
 ]);
 
-/** Soft heuristics — not legal advice; nudges creators away from obvious third-party IP. */
+/**
+ * Soft heuristics — not legal advice.
+ * Focus on obvious third-party IP (characters, brands, hit songs).
+ * Avoid blocking normal gameplay words like “tiktok-style” / “roblox-like”.
+ */
 const RISKY_PATTERNS: RegExp[] = [
-  /\b(disney|marvel|pokemon|nintendo|mario|sonic|fortnite|minecraft|roblox|tiktok|instagram|nike|adidas|gucci|lv|louis\s*vuitton)\b/i,
-  /\b(taylor\s*swift|drake|beyonc[eé]|billie\s*eilish|bad\s*bunny|spotify\s*hit)\b/i,
-  /\b(star\s*wars|harry\s*potter|spiderman|spider-man|batman|avengers|frozen)\b/i,
-  /\b(official\s*soundtrack|copyrighted|leaked\s*album)\b/i,
+  /\b(disney|marvel|pokemon|nintendo|mario|luigi|sonic|pikachu|fortnite|minecraft\s*steve)\b/i,
+  /\b(nike|adidas|gucci|louis\s*vuitton|\blv\b)\b/i,
+  /\b(taylor\s*swift|drake|beyonc[eé]|billie\s*eilish|bad\s*bunny|official\s*soundtrack|leaked\s*album)\b/i,
+  /\b(star\s*wars|harry\s*potter|spiderman|spider-man|batman|avengers|elsa\b|frozen\s*queen)\b/i,
+  /\b(copyrighted\s*track|ripped\s*from\s*youtube|from\s*spotify)\b/i,
 ];
 
 export function validateImageFile(file: File): string | null {
@@ -56,4 +61,8 @@ export const RIGHTS_COPY = {
   body: "Only upload images and music you created yourself, that you have a license for, or that are clearly free to use (e.g. CC0 / public domain). Do not upload commercial songs, movie/game characters, brand logos, or other people’s photos without permission.",
   checkbox:
     "I confirm I have the rights to publish these assets and that they do not infringe copyright or trademarks.",
+  tips: [
+    "OK: your drawings, photos you took, CC0 packs, music you composed",
+    "Not OK: Spotify/YouTube hits, Disney/Mario characters, brand logos, random Google images",
+  ],
 };

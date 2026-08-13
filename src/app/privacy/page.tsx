@@ -19,7 +19,13 @@ export default function PrivacyPage() {
           Passwords are hashed by Supabase Auth. Data in transit uses HTTPS.
         </p>
         <p>
-          Typical data: email, profile fields, created games, likes, saves, comments, and view events.
+          Typical data: email, profile fields, created games, likes, saves, comments, view events,
+          and optional creator uploads (images/music) stored in Supabase Storage for published games.
+        </p>
+        <p>
+          Uploaded media is shown publicly if you publish a game. Do not upload personal data of
+          others or copyrighted third-party material. You can remove assets from a draft before
+          publishing; published media may remain reachable via the game until the game is deleted.
         </p>
         <p>
           Controllers should list contact details, retention periods, and the processor (Supabase) for GDPR compliance.
