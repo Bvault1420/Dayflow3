@@ -9,9 +9,23 @@ import { formatCount } from "@/lib/demo-data";
 import type { Game } from "@/lib/types";
 import { BrandWordmark } from "./Brand";
 import { GAME_WITH_CREATOR } from "@/lib/supabase/queries";
-import { generateGameFromPrompt } from "@/lib/generate-game";
+import {
+  buildPlayConfig,
+  encodePlayConfig,
+  generateGameFromPrompt,
+  type GameGenre,
+  type PlayConfig,
+} from "@/lib/generate-game";
+import { PlayableGame } from "./PlayableGame";
 
 const THEMES = ["neon", "purple-pipes", "city", "candy", "monster"] as const;
+const GENRES: { id: GameGenre; label: string }[] = [
+  { id: "flappy", label: "Flappy" },
+  { id: "runner", label: "Runner" },
+  { id: "dodge", label: "Dodge" },
+  { id: "catch", label: "Catch" },
+  { id: "tap", label: "Tap" },
+];
 
 export function CreateScreen({
   onClose,
@@ -26,11 +40,24 @@ export function CreateScreen({
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState(30);
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("neon");
+  const [genre, setGenre] = useState<GameGenre>("flappy");
+  const [play, setPlay] = useState<PlayConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRemixes, setShowRemixes] = useState(true);
   const [remixes, setRemixes] = useState<Game[]>([]);
   const [status, setStatus] = useState<string | null>(null);
+
+  const preview = useMemo(() => {
+    if (!prompt.trim() && !play) return null;
+    return buildPlayConfig({
+      prompt: prompt.trim() || play?.title || "arcade moment",
+      title: title || play?.title,
+      theme,
+      duration_seconds: duration,
+      genre,
+    });
+  }, [play, prompt, title, theme, duration, genre]);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +75,27 @@ export function CreateScreen({
     };
   }, [supabase]);
 
+  function applyDraft(draft: {
+    title: string;
+    theme: (typeof THEMES)[number];
+    duration_seconds: number;
+    play?: PlayConfig;
+  }) {
+    setTitle(draft.title);
+    setTheme(draft.theme);
+    setDuration(draft.duration_seconds);
+    const next =
+      draft.play ??
+      buildPlayConfig({
+        prompt: prompt.trim() || draft.title,
+        title: draft.title,
+        theme: draft.theme,
+        duration_seconds: draft.duration_seconds,
+      });
+    setGenre(next.genre);
+    setPlay(next);
+  }
+
   async function shapeFromPrompt() {
     const idea = prompt.trim();
     if (!idea) {
@@ -56,7 +104,7 @@ export function CreateScreen({
     }
     setBusy(true);
     setError(null);
-    setStatus("Shaping your moment…");
+    setStatus("Building a real playable game…");
     try {
       const res = await fetch("/api/generate-game", {
         method: "POST",
@@ -64,16 +112,11 @@ export function CreateScreen({
         body: JSON.stringify({ prompt: idea }),
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
-      setTitle(draft.title);
-      setTheme(draft.theme);
-      setDuration(draft.duration_seconds);
-      setStatus("Ready — adjust and publish.");
+      applyDraft(draft);
+      setStatus(`Ready — ${draft.play?.genre || "arcade"} game. Try it below, then publish.`);
     } catch {
-      const draft = generateGameFromPrompt(idea);
-      setTitle(draft.title);
-      setTheme(draft.theme);
-      setDuration(draft.duration_seconds);
-      setStatus("Ready — adjust and publish.");
+      applyDraft(generateGameFromPrompt(idea));
+      setStatus("Ready — try the game below, then publish.");
     } finally {
       setBusy(false);
     }
@@ -91,21 +134,33 @@ export function CreateScreen({
     }
     setBusy(true);
     setError(null);
-    setStatus(asDraft ? "Saving draft…" : "Publishing…");
+    setStatus(asDraft ? "Saving draft…" : "Publishing playable game…");
 
-    const shaped = title.trim()
-      ? null
-      : generateGameFromPrompt(idea);
+    const shaped = generateGameFromPrompt(idea);
+    const finalPlay =
+      play ??
+      buildPlayConfig({
+        prompt: idea,
+        title: title.trim() || shaped.title,
+        theme,
+        duration_seconds: duration,
+        genre,
+      });
+    finalPlay.theme = theme;
+    finalPlay.genre = genre;
+    finalPlay.duration_seconds = duration;
+    finalPlay.title = title.trim() || shaped.title;
 
     const payload = {
       creator_id: user.id,
-      title: title.trim() || shaped!.title,
-      description: (shaped?.description || idea).slice(0, 180),
+      title: finalPlay.title,
+      description: (shaped.description || idea).slice(0, 180),
       prompt: idea,
       duration_seconds: duration,
       status: asDraft ? "draft" : "published",
       theme,
       thumbnail_url: null,
+      play_url: encodePlayConfig(finalPlay),
     };
 
     const { error: insertError } = await supabase.from("games").insert(payload);
@@ -119,6 +174,7 @@ export function CreateScreen({
 
     setPrompt("");
     setTitle("");
+    setPlay(null);
     onPublished();
   }
 
@@ -144,15 +200,15 @@ export function CreateScreen({
         >
           Describe a moment.
           <br />
-          <span className="text-accent">Ship it in seconds.</span>
+          <span className="text-accent">Get a real playable game.</span>
         </motion.p>
 
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4 shadow-[0_12px_40px_rgba(14,22,33,0.06)]">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. A 3D flappy bird with neon pipes…"
-            rows={5}
+            placeholder="e.g. A flappy bird with neon pipes…"
+            rows={4}
             className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
           />
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -163,7 +219,7 @@ export function CreateScreen({
               className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-xs font-bold text-accent disabled:opacity-50"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              Shape with AI
+              Build game
             </button>
             <button
               type="button"
@@ -175,6 +231,21 @@ export function CreateScreen({
             </button>
           </div>
         </div>
+
+        {preview && (
+          <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
+            <div className="relative h-64 w-full">
+              <PlayableGame
+                key={`${preview.genre}-${preview.theme}-${preview.duration_seconds}`}
+                config={preview}
+                playing
+              />
+            </div>
+            <p className="border-t border-white/10 px-3 py-2 text-[11px] font-semibold text-white/70">
+              Live preview · {preview.genre} · {preview.instruction}
+            </p>
+          </div>
+        )}
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
@@ -201,6 +272,23 @@ export function CreateScreen({
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
+          {GENRES.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setGenre(g.id)}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
+                genre === g.id
+                  ? "bg-accent text-white"
+                  : "border border-[var(--line)] bg-white text-muted"
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-2">
           {THEMES.map((t) => (
             <button
               key={t}
@@ -276,9 +364,13 @@ export function CreateScreen({
                   key={g.id}
                   type="button"
                   onClick={() => {
-                    setPrompt(`Remix of "${g.title}": ${g.prompt || g.description}`);
-                    setTitle(`Remix: ${g.title}`);
-                    setTheme((g.theme as (typeof THEMES)[number]) || "neon");
+                    const idea = `Remix of "${g.title}": ${g.prompt || g.description}`;
+                    setPrompt(idea);
+                    const draft = generateGameFromPrompt(idea);
+                    applyDraft({
+                      ...draft,
+                      title: `Remix: ${g.title}`.slice(0, 48),
+                    });
                   }}
                   className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
                 >

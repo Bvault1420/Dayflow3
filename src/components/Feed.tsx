@@ -11,68 +11,28 @@ import {
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { THEME_STYLES, formatCount } from "@/lib/demo-data";
+import { formatCount } from "@/lib/demo-data";
 import type { Comment, Game } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { COMMENT_WITH_PROFILE, GAME_WITH_CREATOR } from "@/lib/supabase/queries";
+import { resolvePlayConfig } from "@/lib/generate-game";
 import { useAuth } from "./AuthProvider";
+import { PlayableGame } from "./PlayableGame";
 
 function GameCanvas({ game, playing }: { game: Game; playing: boolean }) {
-  const theme = THEME_STYLES[game.theme] ?? THEME_STYLES.neon;
-  const [score, setScore] = useState(0);
-  const [pulse, setPulse] = useState(0);
-
-  useEffect(() => {
-    if (!playing) return;
-    setScore(0);
-    setPulse(0);
-  }, [playing, game.id]);
-
-  function tap() {
-    if (!playing) return;
-    setScore((s) => s + 1);
-    setPulse((p) => p + 1);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={tap}
-      className="absolute inset-0 overflow-hidden text-left"
-      style={{ background: theme.bg }}
-      aria-label="Tap to play"
-    >
-      <div className="absolute inset-0 opacity-40">
-        <div className="absolute left-[12%] top-[22%] h-36 w-14 rotate-6 rounded-lg bg-sky-300/70" />
-        <div className="absolute right-[16%] top-[30%] h-48 w-14 -rotate-3 rounded-lg bg-orange-300/65" />
-        <div className="absolute left-[40%] top-[58%] h-40 w-12 rounded-lg bg-white/25" />
-      </div>
-      {game.theme === "city" && (
-        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/50 to-transparent">
-          <div className="absolute bottom-28 left-1/2 h-24 w-10 -translate-x-1/2 rounded-t-lg bg-[#1a1a22]" />
-        </div>
-      )}
-      <motion.div
-        key={pulse}
-        initial={{ scale: 1.15, opacity: 0.7 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="absolute left-1/2 top-[16%] -translate-x-1/2 font-display text-7xl font-extrabold text-white/95"
-      >
-        {score}
-      </motion.div>
-      <div className="absolute inset-x-0 top-[40%] text-center">
-        <span className="rounded-md bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-white backdrop-blur">
-          {playing ? "Tap to score" : theme.label}
-        </span>
-      </div>
-      <div className="absolute bottom-40 left-5 h-16 w-16 rounded-2xl border border-white/25 bg-white/10" />
-      <div className="absolute bottom-40 right-5 flex gap-2">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-11 w-11 rounded-2xl border border-white/20 bg-white/10" />
-        ))}
-      </div>
-    </button>
+  const config = useMemo(
+    () =>
+      resolvePlayConfig({
+        prompt: game.prompt,
+        title: game.title,
+        theme: game.theme,
+        duration_seconds: game.duration_seconds,
+        play_url: game.play_url,
+      }),
+    [game]
   );
+
+  return <PlayableGame key={`${game.id}-${config.genre}`} config={config} playing={playing} />;
 }
 
 function CommentsSheet({
