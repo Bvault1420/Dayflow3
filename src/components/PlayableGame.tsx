@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { PlayConfig } from "@/lib/games/types";
+import { kairosSfx } from "@/lib/kairos-sfx";
 
 type Props = {
   config: PlayConfig;
@@ -39,7 +40,14 @@ export function PlayableGame({ config, playing, className }: Props) {
       timeLeft: config.duration_seconds,
       over: false,
       started: false,
+      lives: config.lives ?? 2,
     };
+    const trails: Array<{ x: number; y: number; life: number }> = [];
+    const style = config.obstacle_style || "pipes";
+    const fx = config.fx || "glow";
+    const sfxOn = config.sfx !== false;
+    const hudMinimal = config.hud_style === "minimal";
+    const useDrag = config.control === "drag";
 
     const resize = () => {
       const parent = canvas.parentElement;
@@ -70,6 +78,7 @@ export function PlayableGame({ config, playing, className }: Props) {
     let runX = 0;
     let playerImg: HTMLImageElement | null = null;
     let bgImg: HTMLImageElement | null = null;
+    let obstacleImg: HTMLImageElement | null = null;
     let audio: HTMLAudioElement | null = null;
 
     if (config.player_image) {
@@ -87,6 +96,14 @@ export function PlayableGame({ config, playing, className }: Props) {
         bgImg = img;
       };
       img.src = config.bg_image;
+    }
+    if (config.obstacle_image) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        obstacleImg = img;
+      };
+      img.src = config.obstacle_image;
     }
     if (config.music_url && playing) {
       audio = new Audio(config.music_url);
@@ -117,7 +134,9 @@ export function PlayableGame({ config, playing, className }: Props) {
         state.timeLeft = config.duration_seconds;
         state.over = false;
         state.started = false;
+        state.lives = config.lives ?? 2;
         runX = 0;
+        trails.length = 0;
       }
     };
 
@@ -125,20 +144,27 @@ export function PlayableGame({ config, playing, className }: Props) {
 
     const bumpScore = (n = 1) => {
       state.score += n;
+      if (sfxOn) kairosSfx.score();
     };
 
     const fail = () => {
       flash = 0.35;
-      shake = 8;
+      shake = fx === "shake" || fx === "glow" ? 10 : 6;
+      if (sfxOn) kairosSfx.fail();
       if (config.genre === "tap" || config.genre === "catch") {
-        // soft fail: lose a point buffer, keep going
         state.score = Math.max(0, state.score - 1);
         return;
       }
-      // quick restart mid-round so the clip keeps feeling alive
+      state.lives = Math.max(0, state.lives - 1);
+      if (state.lives <= 0) {
+        state.over = true;
+        return;
+      }
       const score = state.score;
+      const lives = state.lives;
       resetRound(true);
       state.score = score;
+      state.lives = lives;
       state.started = true;
     };
 
@@ -160,8 +186,12 @@ export function PlayableGame({ config, playing, className }: Props) {
 
       if (config.genre === "flappy") {
         vy = jump;
+        if (sfxOn) kairosSfx.flap();
       } else if (config.genre === "runner") {
-        if (playerY >= groundY - 2) vy = jump * 1.15;
+        if (playerY >= groundY - 2) {
+          vy = jump * 1.15;
+          if (sfxOn) kairosSfx.flap();
+        }
       } else if (config.genre === "dodge" || config.genre === "catch") {
         playerX = Math.max(28, Math.min(W - 28, x));
       } else if (config.genre === "tap") {
@@ -172,7 +202,10 @@ export function PlayableGame({ config, playing, className }: Props) {
           const dy = t.y - y;
           if (dx * dx + dy * dy <= (t.r + 12) * (t.r + 12)) {
             if (t.bad) fail();
-            else bumpScore(1);
+            else {
+              bumpScore(1);
+              if (sfxOn) kairosSfx.tap();
+            }
             targets.splice(i, 1);
             hit = true;
             flash = 0.12;
@@ -180,7 +213,7 @@ export function PlayableGame({ config, playing, className }: Props) {
           }
         }
         if (!hit) {
-          // miss penalty soft
+          /* miss */
         }
       }
     };
@@ -188,7 +221,14 @@ export function PlayableGame({ config, playing, className }: Props) {
     const pointerDown = (e: PointerEvent) => {
       onPointer(e.clientX, e.clientY);
     };
+    const pointerMove = (e: PointerEvent) => {
+      if (!useDrag || !state.started || state.over || !playing) return;
+      if (e.buttons === 0 && e.pointerType === "mouse") return;
+      const rect = canvas.getBoundingClientRect();
+      playerX = Math.max(28, Math.min(W - 28, e.clientX - rect.left));
+    };
     canvas.addEventListener("pointerdown", pointerDown);
+    canvas.addEventListener("pointermove", pointerMove);
 
     const drawBackground = () => {
       const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -220,7 +260,53 @@ export function PlayableGame({ config, playing, className }: Props) {
       }
     };
 
+    const drawObstacleShape = (x: number, y: number, w: number, h: number) => {
+      if (obstacleImg) {
+        ctx.drawImage(obstacleImg, x, y, w, h);
+        return;
+      }
+      ctx.fillStyle = config.obstacle_color;
+      if (style === "orbs") {
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (style === "spikes") {
+        ctx.beginPath();
+        ctx.moveTo(x, y + h);
+        ctx.lineTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        roundRect(ctx, x, y, w, h, style === "blocks" ? 6 : 4);
+        ctx.fill();
+      }
+    };
+
     const drawPlayer = (x: number, y: number, r = 18) => {
+      if (fx === "trail" && state.started) {
+        trails.push({ x, y, life: 0.35 });
+      }
+      for (let i = trails.length - 1; i >= 0; i--) {
+        const t = trails[i];
+        t.life -= 0.016;
+        if (t.life <= 0) {
+          trails.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = t.life;
+        ctx.fillStyle = config.player_color;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      if (fx === "glow") {
+        ctx.shadowColor = config.player_color;
+        ctx.shadowBlur = 22;
+      }
+
       if (playerImg) {
         ctx.save();
         ctx.beginPath();
@@ -234,10 +320,9 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.beginPath();
         ctx.arc(x, y, r + 2, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.shadowBlur = 0;
         return;
       }
-      ctx.shadowColor = config.player_color;
-      ctx.shadowBlur = 16;
       ctx.fillStyle = config.player_color;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -250,15 +335,20 @@ export function PlayableGame({ config, playing, className }: Props) {
     };
 
     const drawHudOverlay = () => {
-      const { score, timeLeft, over, started } = state;
+      const { score, timeLeft, over, started, lives } = state;
+      const size = hudMinimal ? Math.floor(W * 0.1) : Math.floor(W * 0.14);
       ctx.fillStyle = config.accent_color;
-      ctx.font = `800 ${Math.floor(W * 0.14)}px system-ui, sans-serif`;
+      ctx.font = `800 ${size}px system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.fillText(String(score), W / 2, H * 0.16);
 
-      ctx.font = `700 13px system-ui, sans-serif`;
+      ctx.font = `700 12px system-ui, sans-serif`;
       ctx.globalAlpha = 0.85;
-      ctx.fillText(`${Math.ceil(Math.max(0, timeLeft))}s`, W / 2, H * 0.21);
+      ctx.fillText(
+        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}`,
+        W / 2,
+        H * 0.21
+      );
       ctx.globalAlpha = 1;
 
       if (!started && !over) {
@@ -275,7 +365,7 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = config.accent_color;
         ctx.font = "800 28px system-ui, sans-serif";
-        ctx.fillText("Time’s up", W / 2, H * 0.44);
+        ctx.fillText(lives <= 0 ? "Out of lives" : "Time’s up", W / 2, H * 0.44);
         ctx.font = "700 14px system-ui, sans-serif";
         ctx.fillText(`Score ${score} · tap to replay`, W / 2, H * 0.5);
       }
@@ -308,16 +398,17 @@ export function PlayableGame({ config, playing, className }: Props) {
         if (playerY > H - 30 || playerY < 20) fail();
       }
 
-      // draw pipes
+      // draw pipes / styled obstacles
       for (const p of pipes) {
-        ctx.fillStyle = config.obstacle_color;
-        ctx.fillRect(p.x, 0, 44, p.gapY - p.gapH / 2);
-        ctx.fillRect(p.x, p.gapY + p.gapH / 2, 44, H - (p.gapY + p.gapH / 2));
-        ctx.fillStyle = config.accent_color;
-        ctx.globalAlpha = 0.25;
-        ctx.fillRect(p.x, p.gapY - p.gapH / 2 - 10, 44, 10);
-        ctx.fillRect(p.x, p.gapY + p.gapH / 2, 44, 10);
-        ctx.globalAlpha = 1;
+        const topH = p.gapY - p.gapH / 2;
+        const botY = p.gapY + p.gapH / 2;
+        if (style === "pipes" || style === "blocks") {
+          drawObstacleShape(p.x, 0, 44, topH);
+          drawObstacleShape(p.x, botY, 44, H - botY);
+        } else {
+          drawObstacleShape(p.x, topH - 36, 44, 36);
+          drawObstacleShape(p.x, botY, 44, 36);
+        }
       }
       drawPlayer(playerX, playerY, 17);
     };
@@ -372,9 +463,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.globalAlpha = 1;
 
       for (const o of obstacles) {
-        ctx.fillStyle = config.obstacle_color;
-        roundRect(ctx, o.x, o.y, o.w, o.h, 8);
-        ctx.fill();
+        drawObstacleShape(o.x, o.y, o.w, o.h);
       }
       drawPlayer(playerX, playerY, 16);
     };
@@ -557,6 +646,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       alive = false;
       cancelAnimationFrame(raf);
       canvas.removeEventListener("pointerdown", pointerDown);
+      canvas.removeEventListener("pointermove", pointerMove);
       ro.disconnect();
       if (audio) {
         audio.pause();

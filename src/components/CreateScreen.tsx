@@ -1,8 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, ImagePlus, Music2, Sparkles, Trash2, X } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  ArrowUp,
+  ImagePlus,
+  Mic,
+  Music2,
+  Sparkles,
+  Trash2,
+  Volume2,
+  X,
+} from "lucide-react";
+import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "./AuthProvider";
 import { formatCount } from "@/lib/demo-data";
@@ -10,10 +19,17 @@ import type { Game } from "@/lib/types";
 import { BrandWordmark } from "./Brand";
 import { GAME_WITH_CREATOR } from "@/lib/supabase/queries";
 import {
+  IDEA_STARTERS,
+  REFINE_CHIPS,
   buildPlayConfig,
   encodePlayConfig,
   generateGameFromPrompt,
+  type ControlStyle,
+  type Difficulty,
+  type FxStyle,
   type GameGenre,
+  type HudStyle,
+  type ObstacleStyle,
   type PlayConfig,
 } from "@/lib/generate-game";
 import { PlayableGame } from "./PlayableGame";
@@ -33,6 +49,21 @@ const GENRES: { id: GameGenre; label: string }[] = [
   { id: "catch", label: "Catch" },
   { id: "tap", label: "Tap" },
 ];
+const DIFFICULTIES: Difficulty[] = ["easy", "normal", "hard", "insane"];
+const OBSTACLE_STYLES: { id: ObstacleStyle; label: string }[] = [
+  { id: "pipes", label: "Pipes" },
+  { id: "blocks", label: "Blocks" },
+  { id: "orbs", label: "Orbs" },
+  { id: "spikes", label: "Spikes" },
+];
+const FX_STYLES: { id: FxStyle; label: string }[] = [
+  { id: "none", label: "Clean" },
+  { id: "glow", label: "Glow" },
+  { id: "trail", label: "Trail" },
+  { id: "shake", label: "Shake" },
+];
+
+type Tab = "idea" | "play" | "look" | "media" | "remix";
 
 export function CreateScreen({
   onClose,
@@ -45,22 +76,32 @@ export function CreateScreen({
   const supabase = useMemo(() => createClient(), []);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
+  const obstacleInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
+  const [tab, setTab] = useState<Tab>("idea");
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState(30);
   const [theme, setTheme] = useState<(typeof THEMES)[number]>("neon");
   const [genre, setGenre] = useState<GameGenre>("flappy");
+  const [difficulty, setDifficulty] = useState<Difficulty>("normal");
+  const [obstacleStyle, setObstacleStyle] = useState<ObstacleStyle>("pipes");
+  const [fx, setFx] = useState<FxStyle>("glow");
+  const [sfx, setSfx] = useState(true);
+  const [control, setControl] = useState<ControlStyle>("tap");
+  const [hudStyle, setHudStyle] = useState<HudStyle>("bold");
+  const [lives, setLives] = useState(2);
   const [play, setPlay] = useState<PlayConfig | null>(null);
   const [playerImage, setPlayerImage] = useState<string | null>(null);
   const [bgImage, setBgImage] = useState<string | null>(null);
+  const [obstacleImage, setObstacleImage] = useState<string | null>(null);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showRemixes, setShowRemixes] = useState(true);
   const [remixes, setRemixes] = useState<Game[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -72,15 +113,42 @@ export function CreateScreen({
       theme,
       duration_seconds: duration,
       genre,
+      difficulty,
+      obstacle_style: obstacleStyle,
+      fx,
+      sfx,
+      control,
+      hud_style: hudStyle,
+      lives,
     });
     return {
       ...base,
       player_image: playerImage,
       bg_image: bgImage,
       music_url: musicUrl,
+      obstacle_image: obstacleImage,
       rights_confirmed: rightsConfirmed,
     };
-  }, [play, prompt, title, theme, duration, genre, playerImage, bgImage, musicUrl, rightsConfirmed]);
+  }, [
+    play,
+    prompt,
+    title,
+    theme,
+    duration,
+    genre,
+    difficulty,
+    obstacleStyle,
+    fx,
+    sfx,
+    control,
+    hudStyle,
+    lives,
+    playerImage,
+    bgImage,
+    musicUrl,
+    obstacleImage,
+    rightsConfirmed,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,10 +184,59 @@ export function CreateScreen({
         duration_seconds: draft.duration_seconds,
       });
     setGenre(next.genre);
+    setDifficulty(next.difficulty || "normal");
+    setObstacleStyle(next.obstacle_style || "pipes");
+    setFx(next.fx || "glow");
+    setSfx(next.sfx !== false);
+    setControl(next.control || "tap");
+    setHudStyle(next.hud_style || "bold");
+    setLives(next.lives || 2);
     setPlay(next);
   }
 
-  async function uploadAsset(kind: "image" | "audio", file: File, slot: "player" | "bg" | "music") {
+  function startVoice() {
+    const SR =
+      typeof window !== "undefined"
+        ? (
+            window as unknown as {
+              SpeechRecognition?: new () => SpeechRecognition;
+              webkitSpeechRecognition?: new () => SpeechRecognition;
+            }
+          ).SpeechRecognition ||
+          (
+            window as unknown as {
+              webkitSpeechRecognition?: new () => SpeechRecognition;
+            }
+          ).webkitSpeechRecognition
+        : undefined;
+    if (!SR) {
+      setError("Voice input isn’t supported in this browser. Type your idea instead.");
+      return;
+    }
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.onstart = () => setListening(true);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => {
+      setListening(false);
+      setError("Couldn’t hear that — try again or type.");
+    };
+    rec.onresult = (ev: SpeechRecognitionEvent) => {
+      const text = ev.results[0]?.[0]?.transcript?.trim();
+      if (text) {
+        setPrompt((p) => (p ? `${p} ${text}` : text));
+        setStatus("Voice added to your prompt");
+      }
+    };
+    rec.start();
+  }
+
+  async function uploadAsset(
+    kind: "image" | "audio",
+    file: File,
+    slot: "player" | "bg" | "music" | "obstacle"
+  ) {
     if (!user) {
       setError("Sign in to upload images or music");
       return;
@@ -156,10 +273,9 @@ export function CreateScreen({
       }
       if (slot === "player") setPlayerImage(data.url);
       if (slot === "bg") setBgImage(data.url);
+      if (slot === "obstacle") setObstacleImage(data.url);
       if (slot === "music") setMusicUrl(data.url);
-      setStatus(
-        slot === "music" ? "Music added to your game." : "Image added to your game."
-      );
+      setStatus(slot === "music" ? "Music added." : "Image added.");
     } catch {
       setError("Upload failed. Try again.");
     } finally {
@@ -186,10 +302,12 @@ export function CreateScreen({
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
       applyDraft(draft);
-      setStatus(`Ready — ${draft.play?.genre || "arcade"} game. Add images/music if you want.`);
+      setTab("play");
+      setStatus(`Ready — tweak play style, look, and media.`);
     } catch {
       applyDraft(generateGameFromPrompt(idea));
-      setStatus("Ready — try the game below, then publish.");
+      setTab("play");
+      setStatus("Ready — tweak and publish.");
     } finally {
       setBusy(false);
     }
@@ -205,7 +323,7 @@ export function CreateScreen({
       setError("Describe your game idea first");
       return;
     }
-    const hasUploadedMedia = [playerImage, bgImage, musicUrl].some(
+    const hasUploadedMedia = [playerImage, bgImage, musicUrl, obstacleImage].some(
       (u) => !!u && /^https?:\/\//i.test(u)
     );
     if (hasUploadedMedia && !rightsConfirmed) {
@@ -223,22 +341,24 @@ export function CreateScreen({
     setStatus(asDraft ? "Saving draft…" : "Publishing playable game…");
 
     const shaped = generateGameFromPrompt(idea);
-    const finalPlay =
-      play ??
-      buildPlayConfig({
-        prompt: idea,
-        title: title.trim() || shaped.title,
-        theme,
-        duration_seconds: duration,
-        genre,
-      });
-    finalPlay.theme = theme;
-    finalPlay.genre = genre;
-    finalPlay.duration_seconds = duration;
-    finalPlay.title = title.trim() || shaped.title;
+    const finalPlay = buildPlayConfig({
+      prompt: idea,
+      title: title.trim() || shaped.title,
+      theme,
+      duration_seconds: duration,
+      genre,
+      difficulty,
+      obstacle_style: obstacleStyle,
+      fx,
+      sfx,
+      control,
+      hud_style: hudStyle,
+      lives,
+    });
     finalPlay.player_image = playerImage;
     finalPlay.bg_image = bgImage;
     finalPlay.music_url = musicUrl;
+    finalPlay.obstacle_image = obstacleImage;
     finalPlay.rights_confirmed = hasUploadedMedia ? rightsConfirmed : true;
 
     const payload = {
@@ -267,10 +387,19 @@ export function CreateScreen({
     setPlay(null);
     setPlayerImage(null);
     setBgImage(null);
+    setObstacleImage(null);
     setMusicUrl(null);
     setRightsConfirmed(false);
     onPublished();
   }
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "idea", label: "Idea" },
+    { id: "play", label: "Play" },
+    { id: "look", label: "Look" },
+    { id: "media", label: "Media" },
+    { id: "remix", label: "Remix" },
+  ];
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
@@ -286,257 +415,453 @@ export function CreateScreen({
         <div className="w-9" />
       </div>
 
+      <div className="mx-4 mb-2 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--line)] bg-white p-1">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`flex-1 rounded-xl px-2 py-2 text-xs font-bold ${
+              tab === t.id ? "bg-ink text-white" : "text-muted"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto px-4 pb-28">
-        <motion.p
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-5 font-display text-[2rem] font-extrabold leading-[1.05] text-ink"
-        >
-          Describe a moment.
-          <br />
-          <span className="text-accent">Add your art & music.</span>
-        </motion.p>
-
-        <div className="rounded-2xl border border-[var(--line)] bg-white p-4 shadow-[0_12px_40px_rgba(14,22,33,0.06)]">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. A flappy bird with neon pipes…"
-            rows={4}
-            className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
-          />
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={shapeFromPrompt}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-xs font-bold text-accent disabled:opacity-50"
+        {tab === "idea" && (
+          <section>
+            <motion.p
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 font-display text-[1.85rem] font-extrabold leading-[1.05] text-ink"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              Build game
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => publish(false)}
-              className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
-            >
-              <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
-            </button>
-          </div>
-        </div>
+              Describe a moment.
+              <br />
+              <span className="text-accent">Build it like a studio.</span>
+            </motion.p>
 
-        {/* Assets */}
-        <section className="mt-4 rounded-2xl border border-[var(--line)] bg-white p-4">
-          <h3 className="text-sm font-bold text-ink">Images & music</h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted">{RIGHTS_COPY.body}</p>
-          <ul className="mt-2 space-y-1 text-[11px] text-muted">
-            {RIGHTS_COPY.tips.map((tip) => (
-              <li key={tip}>• {tip}</li>
-            ))}
-          </ul>
+            <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="e.g. A flappy bird with neon pipes…"
+                rows={4}
+                className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={shapeFromPrompt}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-xs font-bold text-accent disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Build game
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startVoice}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold ${
+                      listening ? "bg-hot text-hot-ink" : "bg-white text-ink"
+                    }`}
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                    {listening ? "Listening…" : "Voice"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => publish(false)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
+                >
+                  <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
 
-          <div className="mt-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-muted">
-              Free Kairos packs (safe)
-            </p>
-            <p className="mt-1 text-[11px] text-muted">
-              Original Kairos art — no copyright risk. Apply without the rights checkbox.
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-muted">
+              Idea starters (original Kairos)
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {FREE_PACKS.map((pack) => (
+              {IDEA_STARTERS.map((idea) => (
                 <button
-                  key={pack.id}
+                  key={idea}
                   type="button"
-                  onClick={() => {
-                    setPlayerImage(pack.player_image);
-                    setBgImage(pack.bg_image);
-                    setStatus(`Applied free pack: ${pack.label}`);
-                  }}
-                  className="rounded-xl border border-[var(--line)] bg-canvas px-3 py-2 text-xs font-semibold text-ink"
+                  onClick={() => setPrompt(idea)}
+                  className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-[11px] font-semibold text-ink"
                 >
-                  {pack.label}
+                  {idea}
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setMusicUrl(makeKairosPulseWav());
-                  setStatus("Added free Kairos Pulse music loop");
-                }}
-                className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] bg-canvas px-3 py-2 text-xs font-semibold text-ink"
-              >
-                <Music2 className="h-3.5 w-3.5 text-accent" />
-                Free pulse music
-              </button>
             </div>
-          </div>
 
-          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl bg-canvas px-3 py-3">
-            <input
-              type="checkbox"
-              checked={rightsConfirmed}
-              onChange={(e) => setRightsConfirmed(e.target.checked)}
-              className="mt-0.5 accent-[var(--accent)]"
-            />
-            <span className="text-xs font-medium leading-relaxed text-ink">
-              {RIGHTS_COPY.checkbox}{" "}
-              <a href="/terms" className="font-semibold text-accent underline-offset-2 hover:underline">
-                Terms
-              </a>
-            </span>
-          </label>
-
-          {!rightsConfirmed && (
-            <p className="mt-2 text-[11px] font-semibold text-hot">
-              Check the box to upload your own Player / Background / Music files.
+            <p className="mt-4 text-[11px] font-bold uppercase tracking-wide text-muted">
+              Refine
             </p>
-          )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {REFINE_CHIPS.map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => setPrompt((p) => `${p.trim()}${chip.append}`)}
+                  className="rounded-full bg-accent-soft px-3 py-1.5 text-[11px] font-bold text-accent"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <AssetButton
-              label="Player"
-              icon={<ImagePlus className="h-4 w-4" />}
-              preview={playerImage}
-              busy={uploading === "player"}
-              disabled={!rightsConfirmed || !!uploading}
-              onPick={() => imageInputRef.current?.click()}
-              onClear={() => setPlayerImage(null)}
-            />
-            <AssetButton
-              label="Background"
-              icon={<ImagePlus className="h-4 w-4" />}
-              preview={bgImage}
-              busy={uploading === "bg"}
-              disabled={!rightsConfirmed || !!uploading}
-              onPick={() => bgInputRef.current?.click()}
-              onClear={() => setBgImage(null)}
-            />
-            <AssetButton
-              label="Music"
-              icon={<Music2 className="h-4 w-4" />}
-              preview={musicUrl ? "music" : null}
-              busy={uploading === "music"}
-              disabled={!rightsConfirmed || !!uploading}
-              onPick={() => audioInputRef.current?.click()}
-              onClear={() => setMusicUrl(null)}
-            />
-          </div>
+        {tab === "play" && (
+          <section className="space-y-4">
+            <h3 className="font-display text-2xl font-bold text-ink">Play style</h3>
+            <ChipRow label="Genre">
+              {GENRES.map((g) => (
+                <Chip key={g.id} active={genre === g.id} onClick={() => setGenre(g.id)}>
+                  {g.label}
+                </Chip>
+              ))}
+            </ChipRow>
+            <ChipRow label="Difficulty">
+              {DIFFICULTIES.map((d) => (
+                <Chip
+                  key={d}
+                  active={difficulty === d}
+                  onClick={() => setDifficulty(d)}
+                  className="capitalize"
+                >
+                  {d}
+                </Chip>
+              ))}
+            </ChipRow>
+            <ChipRow label="Controls">
+              <Chip active={control === "tap"} onClick={() => setControl("tap")}>
+                Tap
+              </Chip>
+              <Chip active={control === "drag"} onClick={() => setControl("drag")}>
+                Drag
+              </Chip>
+            </ChipRow>
+            <label className="block rounded-2xl border border-[var(--line)] bg-white p-3">
+              <span className="text-[11px] font-medium text-muted">Duration {duration}s</span>
+              <input
+                type="range"
+                min={10}
+                max={60}
+                step={5}
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="mt-3 w-full accent-accent"
+              />
+            </label>
+            <label className="block rounded-2xl border border-[var(--line)] bg-white p-3">
+              <span className="text-[11px] font-medium text-muted">Lives {lives}</span>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                step={1}
+                value={lives}
+                onChange={(e) => setLives(Number(e.target.value))}
+                className="mt-3 w-full accent-accent"
+              />
+            </label>
+            <label className="block rounded-2xl border border-[var(--line)] bg-white p-3">
+              <span className="text-[11px] font-medium text-muted">Title</span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="mt-1 w-full bg-transparent text-sm text-ink outline-none"
+                placeholder="Auto from prompt"
+              />
+            </label>
+          </section>
+        )}
 
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) void uploadAsset("image", f, "player");
-            }}
-          />
-          <input
-            ref={bgInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) void uploadAsset("image", f, "bg");
-            }}
-          />
-          <input
-            ref={audioInputRef}
-            type="file"
-            accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg,.m4a"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) void uploadAsset("audio", f, "music");
-            }}
-          />
+        {tab === "look" && (
+          <section className="space-y-4">
+            <h3 className="font-display text-2xl font-bold text-ink">Look & feel</h3>
+            <ChipRow label="Vibe">
+              {THEMES.map((t) => (
+                <Chip
+                  key={t}
+                  active={theme === t}
+                  onClick={() => setTheme(t)}
+                  className="capitalize"
+                >
+                  {t.replace("-", " ")}
+                </Chip>
+              ))}
+            </ChipRow>
+            <ChipRow label="Obstacles">
+              {OBSTACLE_STYLES.map((o) => (
+                <Chip
+                  key={o.id}
+                  active={obstacleStyle === o.id}
+                  onClick={() => setObstacleStyle(o.id)}
+                >
+                  {o.label}
+                </Chip>
+              ))}
+            </ChipRow>
+            <ChipRow label="FX">
+              {FX_STYLES.map((f) => (
+                <Chip key={f.id} active={fx === f.id} onClick={() => setFx(f.id)}>
+                  {f.label}
+                </Chip>
+              ))}
+            </ChipRow>
+            <ChipRow label="HUD">
+              <Chip active={hudStyle === "bold"} onClick={() => setHudStyle("bold")}>
+                Bold
+              </Chip>
+              <Chip active={hudStyle === "minimal"} onClick={() => setHudStyle("minimal")}>
+                Minimal
+              </Chip>
+            </ChipRow>
+            <button
+              type="button"
+              onClick={() => setSfx((v) => !v)}
+              className={`flex w-full items-center justify-between rounded-2xl border border-[var(--line)] px-4 py-3 text-sm font-semibold ${
+                sfx ? "bg-accent-soft text-accent" : "bg-white text-muted"
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Volume2 className="h-4 w-4" />
+                Kairos SFX (safe beeps)
+              </span>
+              <span>{sfx ? "On" : "Off"}</span>
+            </button>
+          </section>
+        )}
 
-          <p className="mt-2 text-[11px] text-muted">
-            Max 3 MB images · max 5 MB audio. Files go to your private creator folder and are used
-            only in your published game.
-          </p>
-        </section>
+        {tab === "media" && (
+          <section className="space-y-3">
+            <h3 className="font-display text-2xl font-bold text-ink">Images & music</h3>
+            <p className="text-xs leading-relaxed text-muted">{RIGHTS_COPY.body}</p>
+            <ul className="space-y-1 text-[11px] text-muted">
+              {RIGHTS_COPY.tips.map((tip) => (
+                <li key={tip}>• {tip}</li>
+              ))}
+            </ul>
+
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted">
+                Free Kairos packs (safe)
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {FREE_PACKS.map((pack) => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => {
+                      setPlayerImage(pack.player_image);
+                      setBgImage(pack.bg_image);
+                      setStatus(`Applied free pack: ${pack.label}`);
+                    }}
+                    className="rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-ink"
+                  >
+                    {pack.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMusicUrl(makeKairosPulseWav());
+                    setStatus("Added free Kairos Pulse music");
+                  }}
+                  className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-ink"
+                >
+                  <Music2 className="h-3.5 w-3.5 text-accent" />
+                  Free pulse music
+                </button>
+              </div>
+            </div>
+
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-white px-3 py-3 border border-[var(--line)]">
+              <input
+                type="checkbox"
+                checked={rightsConfirmed}
+                onChange={(e) => setRightsConfirmed(e.target.checked)}
+                className="mt-0.5 accent-[var(--accent)]"
+              />
+              <span className="text-xs font-medium leading-relaxed text-ink">
+                {RIGHTS_COPY.checkbox}{" "}
+                <a href="/terms" className="font-semibold text-accent underline-offset-2 hover:underline">
+                  Terms
+                </a>
+              </span>
+            </label>
+
+            {!rightsConfirmed && (
+              <p className="text-[11px] font-semibold text-hot">
+                Check the box to upload your own Player / Background / Obstacle / Music files.
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <AssetButton
+                label="Player"
+                icon={<ImagePlus className="h-4 w-4" />}
+                preview={playerImage}
+                busy={uploading === "player"}
+                disabled={!rightsConfirmed || !!uploading}
+                onPick={() => imageInputRef.current?.click()}
+                onClear={() => setPlayerImage(null)}
+              />
+              <AssetButton
+                label="Background"
+                icon={<ImagePlus className="h-4 w-4" />}
+                preview={bgImage}
+                busy={uploading === "bg"}
+                disabled={!rightsConfirmed || !!uploading}
+                onPick={() => bgInputRef.current?.click()}
+                onClear={() => setBgImage(null)}
+              />
+              <AssetButton
+                label="Obstacle"
+                icon={<ImagePlus className="h-4 w-4" />}
+                preview={obstacleImage}
+                busy={uploading === "obstacle"}
+                disabled={!rightsConfirmed || !!uploading}
+                onPick={() => obstacleInputRef.current?.click()}
+                onClear={() => setObstacleImage(null)}
+              />
+              <AssetButton
+                label="Music"
+                icon={<Music2 className="h-4 w-4" />}
+                preview={musicUrl ? "music" : null}
+                busy={uploading === "music"}
+                disabled={!rightsConfirmed || !!uploading}
+                onPick={() => audioInputRef.current?.click()}
+                onClear={() => setMusicUrl(null)}
+              />
+            </div>
+
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadAsset("image", f, "player");
+              }}
+            />
+            <input
+              ref={bgInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadAsset("image", f, "bg");
+              }}
+            />
+            <input
+              ref={obstacleInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadAsset("image", f, "obstacle");
+              }}
+            />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg,.m4a"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadAsset("audio", f, "music");
+              }}
+            />
+            <p className="text-[11px] text-muted">
+              Max 3 MB images · max 5 MB audio. No Spotify/YouTube rips, brand logos, or character
+              art you don’t own.
+            </p>
+          </section>
+        )}
+
+        {tab === "remix" && (
+          <section>
+            <h3 className="font-display text-2xl font-bold text-ink">Remix a spark</h3>
+            <p className="mt-1 text-sm text-muted">Start from a published community game</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {remixes.length === 0 && (
+                <p className="col-span-2 py-6 text-center text-sm text-muted">
+                  No published games to remix yet.
+                </p>
+              )}
+              {remixes.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    const idea = `Remix of "${g.title}": ${g.prompt || g.description}`;
+                    setPrompt(idea);
+                    const draft = generateGameFromPrompt(idea);
+                    applyDraft({
+                      ...draft,
+                      title: `Remix: ${g.title}`.slice(0, 48),
+                    });
+                    setTab("idea");
+                    setStatus("Remix loaded — tweak and publish your version.");
+                  }}
+                  className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
+                >
+                  <div
+                    className="aspect-square"
+                    style={{
+                      background:
+                        g.theme === "candy"
+                          ? "linear-gradient(145deg,#ff9ad5,#7a1048)"
+                          : g.theme === "city"
+                            ? "linear-gradient(145deg,#4aa3ff,#0d1b2a)"
+                            : "linear-gradient(145deg,#2457ff,#0e1621)",
+                    }}
+                  />
+                  <div className="p-2.5">
+                    <p className="truncate text-sm font-semibold text-ink">{g.title}</p>
+                    <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+                      <span>@{g.creator?.username ?? profile?.username ?? "creator"}</span>
+                      <span>♥ {formatCount(g.like_count)}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {preview && (
           <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
             <div className="relative h-64 w-full">
               <PlayableGame
-                key={`${preview.genre}-${preview.theme}-${preview.player_image}-${preview.bg_image}-${preview.music_url}`}
+                key={`${preview.genre}-${preview.theme}-${preview.difficulty}-${preview.obstacle_style}-${preview.fx}-${preview.player_image}-${preview.bg_image}-${preview.music_url}-${preview.obstacle_image}`}
                 config={preview}
                 playing
               />
             </div>
             <p className="border-t border-white/10 px-3 py-2 text-[11px] font-semibold text-white/70">
-              Live preview · {preview.genre}
-              {preview.music_url ? " · music on" : ""}
-              {preview.player_image || preview.bg_image ? " · custom art" : ""}
+              Live preview · {preview.genre} · {preview.difficulty} · {preview.obstacle_style}
+              {preview.music_url ? " · music" : ""}
+              {preview.sfx ? " · sfx" : ""}
             </p>
           </div>
         )}
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
-            <span className="text-[11px] font-medium text-muted">Title</span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 w-full bg-transparent text-sm text-ink outline-none"
-              placeholder="Auto from prompt"
-            />
-          </label>
-          <label className="rounded-2xl border border-[var(--line)] bg-white p-3">
-            <span className="text-[11px] font-medium text-muted">Duration {duration}s</span>
-            <input
-              type="range"
-              min={10}
-              max={60}
-              step={5}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              className="mt-3 w-full accent-accent"
-            />
-          </label>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {GENRES.map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => setGenre(g.id)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                genre === g.id
-                  ? "bg-accent text-white"
-                  : "border border-[var(--line)] bg-white text-muted"
-              }`}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-2 flex flex-wrap gap-2">
-          {THEMES.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTheme(t)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold capitalize ${
-                theme === t
-                  ? "bg-ink text-white"
-                  : "border border-[var(--line)] bg-white text-muted"
-              }`}
-            >
-              {t.replace("-", " ")}
-            </button>
-          ))}
-        </div>
 
         {(error || status) && (
           <p
@@ -566,72 +891,41 @@ export function CreateScreen({
             Publish
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setShowRemixes((v) => !v)}
-          className="mt-8 flex w-full items-center justify-between text-left"
-        >
-          <div>
-            <p className="font-display text-2xl font-bold text-ink">Remix a spark</p>
-            <p className="text-sm text-muted">Start from something already loved</p>
-          </div>
-          <span className="text-muted">{showRemixes ? "▾" : "▸"}</span>
-        </button>
-
-        <AnimatePresence>
-          {showRemixes && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mt-4 grid grid-cols-2 gap-3 overflow-hidden"
-            >
-              {remixes.length === 0 && (
-                <p className="col-span-2 py-6 text-center text-sm text-muted">
-                  No published games to remix yet.
-                </p>
-              )}
-              {remixes.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => {
-                    const idea = `Remix of "${g.title}": ${g.prompt || g.description}`;
-                    setPrompt(idea);
-                    const draft = generateGameFromPrompt(idea);
-                    applyDraft({
-                      ...draft,
-                      title: `Remix: ${g.title}`.slice(0, 48),
-                    });
-                  }}
-                  className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
-                >
-                  <div
-                    className="aspect-square"
-                    style={{
-                      background:
-                        g.theme === "candy"
-                          ? "linear-gradient(145deg,#ff9ad5,#7a1048)"
-                          : g.theme === "city"
-                            ? "linear-gradient(145deg,#4aa3ff,#0d1b2a)"
-                            : "linear-gradient(145deg,#2457ff,#0e1621)",
-                    }}
-                  />
-                  <div className="p-2.5">
-                    <p className="truncate text-sm font-semibold text-ink">{g.title}</p>
-                    <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
-                      <span>@{g.creator?.username ?? profile?.username ?? "creator"}</span>
-                      <span>♥ {formatCount(g.like_count)}</span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+function ChipRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">{label}</p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+  className = "",
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${className} ${
+        active ? "bg-accent text-white" : "border border-[var(--line)] bg-white text-muted"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -653,7 +947,7 @@ function AssetButton({
   onClear: () => void;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-[var(--line)] bg-canvas">
+    <div className="relative overflow-hidden rounded-xl border border-[var(--line)] bg-white">
       <button
         type="button"
         disabled={disabled}
@@ -668,7 +962,11 @@ function AssetButton({
         ) : (
           icon
         )}
-        <span className={`relative z-10 ${preview && preview !== "music" ? "rounded bg-black/50 px-1.5 py-0.5 text-white" : ""}`}>
+        <span
+          className={`relative z-10 ${
+            preview && preview !== "music" ? "rounded bg-black/50 px-1.5 py-0.5 text-white" : ""
+          }`}
+        >
           {busy ? "Uploading…" : label}
         </span>
       </button>
@@ -685,3 +983,17 @@ function AssetButton({
     </div>
   );
 }
+
+/** Minimal SpeechRecognition typings for browsers that support it. */
+type SpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  onresult: ((ev: SpeechRecognitionEvent) => void) | null;
+  start: () => void;
+};
+type SpeechRecognitionEvent = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};

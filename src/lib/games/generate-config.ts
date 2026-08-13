@@ -1,9 +1,29 @@
 import {
+  DIFFICULTY_SPEED,
   THEME_PALETTES,
+  type Difficulty,
+  type FxStyle,
   type GeneratedGameDraft,
   type GameGenre,
   type GameThemeId,
+  type HudStyle,
+  type ObstacleStyle,
   type PlayConfig,
+  type ControlStyle,
+} from "./types";
+
+export {
+  IDEA_STARTERS,
+  REFINE_CHIPS,
+  DIFFICULTY_SPEED,
+  THEME_PALETTES,
+} from "./types";
+export type {
+  Difficulty,
+  ObstacleStyle,
+  FxStyle,
+  ControlStyle,
+  HudStyle,
 } from "./types";
 
 function pickTheme(lower: string): GameThemeId {
@@ -34,6 +54,28 @@ function pickDuration(lower: string): number {
   return 30;
 }
 
+function pickDifficulty(lower: string): Difficulty {
+  if (/insane|crazy|extreme/.test(lower)) return "insane";
+  if (/hard|hardcore/.test(lower)) return "hard";
+  if (/easy|chill|slow|casual/.test(lower)) return "easy";
+  return "normal";
+}
+
+function pickObstacleStyle(lower: string, genre: GameGenre): ObstacleStyle {
+  if (/spike|thorn/.test(lower)) return "spikes";
+  if (/orb|bubble|ball|circle/.test(lower)) return "orbs";
+  if (/block|crate|box|brick/.test(lower)) return "blocks";
+  if (/pipe/.test(lower) || genre === "flappy") return "pipes";
+  return genre === "runner" ? "blocks" : "orbs";
+}
+
+function pickFx(lower: string): FxStyle {
+  if (/shake|juice/.test(lower)) return "shake";
+  if (/glow|neon/.test(lower)) return "glow";
+  if (/trail|motion/.test(lower)) return "trail";
+  return "glow";
+}
+
 function instructionFor(genre: GameGenre): string {
   switch (genre) {
     case "flappy":
@@ -55,17 +97,24 @@ export function buildPlayConfig(input: {
   theme?: GameThemeId;
   duration_seconds?: number;
   genre?: GameGenre;
+  difficulty?: Difficulty;
+  obstacle_style?: ObstacleStyle;
+  fx?: FxStyle;
+  sfx?: boolean;
+  control?: ControlStyle;
+  hud_style?: HudStyle;
+  lives?: number;
 }): PlayConfig {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
   const lower = idea.toLowerCase();
   const theme = input.theme ?? pickTheme(lower);
   const genre = input.genre ?? pickGenre(lower);
   const duration_seconds = input.duration_seconds ?? pickDuration(lower);
+  const difficulty = input.difficulty ?? pickDifficulty(lower);
   const palette = THEME_PALETTES[theme];
 
-  let speed = 1;
-  if (/hard|insane|fast|crazy/.test(lower)) speed = 1.35;
-  else if (/easy|slow|chill/.test(lower)) speed = 0.75;
+  let speed = DIFFICULTY_SPEED[difficulty];
+  if (/fast/.test(lower) && difficulty === "normal") speed = 1.2;
 
   let jump = 1;
   if (/high|floaty/.test(lower)) jump = 1.25;
@@ -95,6 +144,13 @@ export function buildPlayConfig(input: {
     bg_top: palette.bgTop,
     bg_bottom: palette.bgBottom,
     instruction: instructionFor(genre),
+    difficulty,
+    obstacle_style: input.obstacle_style ?? pickObstacleStyle(lower, genre),
+    fx: input.fx ?? pickFx(lower),
+    sfx: input.sfx ?? true,
+    control: input.control ?? (genre === "dodge" || genre === "catch" ? "drag" : "tap"),
+    hud_style: input.hud_style ?? "bold",
+    lives: input.lives ?? (difficulty === "easy" ? 3 : difficulty === "insane" ? 1 : 2),
   };
 }
 
@@ -141,7 +197,22 @@ export function resolvePlayConfig(game: {
 }): PlayConfig {
   const stored = parsePlayConfig(game.play_url);
   if (stored) {
+    const defaults = buildPlayConfig({
+      prompt: game.prompt || stored.title,
+      title: stored.title,
+      theme: stored.theme,
+      duration_seconds: stored.duration_seconds,
+      genre: stored.genre,
+      difficulty: stored.difficulty,
+      obstacle_style: stored.obstacle_style,
+      fx: stored.fx,
+      sfx: stored.sfx,
+      control: stored.control,
+      hud_style: stored.hud_style,
+      lives: stored.lives,
+    });
     return {
+      ...defaults,
       ...stored,
       duration_seconds: game.duration_seconds || stored.duration_seconds,
       title: game.title || stored.title,

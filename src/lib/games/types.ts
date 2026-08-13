@@ -2,6 +2,12 @@ export type GameGenre = "flappy" | "runner" | "dodge" | "catch" | "tap";
 
 export type GameThemeId = "neon" | "purple-pipes" | "city" | "candy" | "monster";
 
+export type Difficulty = "easy" | "normal" | "hard" | "insane";
+export type ObstacleStyle = "pipes" | "blocks" | "orbs" | "spikes";
+export type FxStyle = "none" | "trail" | "glow" | "shake";
+export type ControlStyle = "tap" | "drag";
+export type HudStyle = "bold" | "minimal";
+
 export type PlayConfig = {
   v: 1;
   genre: GameGenre;
@@ -24,7 +30,16 @@ export type PlayConfig = {
   player_image?: string | null;
   bg_image?: string | null;
   music_url?: string | null;
+  obstacle_image?: string | null;
   rights_confirmed?: boolean;
+  /** Creator tooling */
+  difficulty?: Difficulty;
+  obstacle_style?: ObstacleStyle;
+  fx?: FxStyle;
+  sfx?: boolean;
+  control?: ControlStyle;
+  hud_style?: HudStyle;
+  lives?: number;
 };
 
 export type GeneratedGameDraft = {
@@ -75,3 +90,31 @@ export const THEME_PALETTES: Record<
     bgBottom: "#2f4a12",
   },
 };
+
+export const DIFFICULTY_SPEED: Record<Difficulty, number> = {
+  easy: 0.75,
+  normal: 1,
+  hard: 1.25,
+  insane: 1.45,
+};
+
+/** Safe prompt starters — original Kairos ideas, no third-party IP. */
+export const IDEA_STARTERS = [
+  "Neon flappy through glowing pipes",
+  "City sprint jump over crates",
+  "Catch falling candy, dodge bombs",
+  "Tap blinking orbs before they vanish",
+  "Dodge meteors in a tunnel for 20s",
+  "Monster mash — smash green targets",
+  "Chill runner with slow jumps",
+  "Hardcore flappy — tiny gaps",
+];
+
+export const REFINE_CHIPS = [
+  { label: "Harder", append: " Make it harder and faster." },
+  { label: "Chill", append: " Make it easy and chill." },
+  { label: "More glow", append: " Add neon glow effects." },
+  { label: "Shorter", append: " Keep it to 15 seconds." },
+  { label: "Longer", append: " Make it 45 seconds." },
+  { label: "More juice", append: " Add screen shake and trails." },
+];
