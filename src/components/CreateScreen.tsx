@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowUp,
   ImagePlus,
   Mic,
   Music2,
@@ -92,6 +91,7 @@ export function CreateScreen({
   const [control, setControl] = useState<ControlStyle>("tap");
   const [hudStyle, setHudStyle] = useState<HudStyle>("bold");
   const [lives, setLives] = useState(2);
+  const [lanes, setLanes] = useState<1 | 3>(1);
   const [play, setPlay] = useState<PlayConfig | null>(null);
   const [playerImage, setPlayerImage] = useState<string | null>(null);
   const [bgImage, setBgImage] = useState<string | null>(null);
@@ -120,6 +120,7 @@ export function CreateScreen({
       control,
       hud_style: hudStyle,
       lives,
+      lanes,
     });
     return {
       ...base,
@@ -143,6 +144,7 @@ export function CreateScreen({
     control,
     hudStyle,
     lives,
+    lanes,
     playerImage,
     bgImage,
     musicUrl,
@@ -191,6 +193,7 @@ export function CreateScreen({
     setControl(next.control || "tap");
     setHudStyle(next.hud_style || "bold");
     setLives(next.lives || 2);
+    setLanes(next.lanes === 3 ? 3 : 1);
     setPlay(next);
   }
 
@@ -290,29 +293,38 @@ export function CreateScreen({
       return;
     }
     const risk = copyrightRiskHint(idea, title);
-    if (risk) setError(risk);
+    // "like Subway Surfers" is OK as mechanic reference — only hard-block upload IP
     setBusy(true);
-    if (!risk) setError(null);
-    setStatus("Building a real playable game…");
+    setError(risk && /mario|disney|pokemon|nintendo/i.test(idea) ? risk : null);
+    setStatus("KI baut dein komplettes Spiel…");
     try {
       const res = await fetch("/api/generate-game", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: idea }),
+        body: JSON.stringify({ prompt: idea, duration_seconds: duration }),
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
+      if (!res.ok) {
+        draft.duration_seconds = duration;
+        if (draft.play) draft.play.duration_seconds = duration;
+      }
       applyDraft(draft);
       const src = draft.source === "groq" || draft.source === "openai" ? draft.source : "local";
       setTab("play");
       setStatus(
         src === "local"
-          ? `Ready (${src}) — genre ${draft.play?.genre || "arcade"}. Add GROQ_API_KEY for smarter AI.`
-          : `Ready (${src} AI) — “${draft.title}” · ${draft.play?.genre}`
+          ? `Fertig (local) — ${draft.title} · ${draft.play?.genre}${draft.play?.lanes === 3 ? " · 3 lanes" : ""}`
+          : `Fertig (${src} AI) — “${draft.title}” · ${draft.play?.genre}${
+              draft.play?.lanes === 3 ? " · 3-lane runner" : ""
+            } · ${duration}s`
       );
     } catch {
-      applyDraft(generateGameFromPrompt(idea));
+      const draft = generateGameFromPrompt(idea);
+      draft.duration_seconds = duration;
+      draft.play.duration_seconds = duration;
+      applyDraft(draft);
       setTab("play");
-      setStatus("Ready — tweak and publish.");
+      setStatus("Fertig — Spiel gebaut. Feintunen optional.");
     } finally {
       setBusy(false);
     }
@@ -359,6 +371,7 @@ export function CreateScreen({
       control,
       hud_style: hudStyle,
       lives,
+      lanes,
     });
     finalPlay.player_image = playerImage;
     finalPlay.bg_image = bgImage;
@@ -443,54 +456,64 @@ export function CreateScreen({
               animate={{ opacity: 1, y: 0 }}
               className="mb-4 font-display text-[1.85rem] font-extrabold leading-[1.05] text-ink"
             >
-              Describe a moment.
+              Sag der KI, was du willst.
               <br />
-              <span className="text-accent">Build it like a studio.</span>
+              <span className="text-accent">Sie baut das ganze Spiel.</span>
             </motion.p>
 
             <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="e.g. A flappy bird with neon pipes…"
-                rows={4}
+                placeholder='z.B. „Baue mir ein Spiel wie Subway Surfers — 3 Spuren, springen, Stadt“'
+                rows={5}
                 className="w-full resize-none bg-transparent text-base text-ink outline-none placeholder:text-muted/60"
               />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={shapeFromPrompt}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-xs font-bold text-accent disabled:opacity-50"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Build game
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startVoice}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold ${
-                      listening ? "bg-hot text-hot-ink" : "bg-white text-ink"
-                    }`}
-                  >
-                    <Mic className="h-3.5 w-3.5" />
-                    {listening ? "Listening…" : "Voice"}
-                  </button>
-                </div>
+
+              <label className="mt-3 block rounded-xl bg-canvas px-3 py-3">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-muted">
+                  Duration (du entscheidest) — {duration}s
+                </span>
+                <input
+                  type="range"
+                  min={10}
+                  max={60}
+                  step={5}
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  className="mt-3 w-full accent-accent"
+                />
+              </label>
+
+              <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => publish(false)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white disabled:opacity-50"
+                  onClick={shapeFromPrompt}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-white disabled:opacity-50"
                 >
-                  <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
+                  <Sparkles className="h-4 w-4" />
+                  {busy ? "KI generiert…" : "Spiel generieren"}
+                </button>
+                <button
+                  type="button"
+                  onClick={startVoice}
+                  className={`inline-flex h-[50px] items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 text-xs font-bold ${
+                    listening ? "bg-hot text-hot-ink" : "bg-white text-ink"
+                  }`}
+                >
+                  <Mic className="h-4 w-4" />
+                  {listening ? "…" : "Voice"}
                 </button>
               </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                Die KI wählt Genre, Spuren, Hindernisse, Theme, Titel & Feel. Du setzt die Dauer —
+                Feintuning danach unter Play / Look / Media.
+              </p>
             </div>
 
             <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-muted">
-              Idea starters (original Kairos)
+              Starter (rechtlich safe Ideen)
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {IDEA_STARTERS.map((idea) => (
@@ -532,6 +555,14 @@ export function CreateScreen({
                   {g.label}
                 </Chip>
               ))}
+            </ChipRow>
+            <ChipRow label="Lanes">
+              <Chip active={lanes === 1} onClick={() => setLanes(1)}>
+                1 (classic)
+              </Chip>
+              <Chip active={lanes === 3} onClick={() => setLanes(3)}>
+                3 (subway-style)
+              </Chip>
             </ChipRow>
             <ChipRow label="Difficulty">
               {DIFFICULTIES.map((d) => (
@@ -855,13 +886,15 @@ export function CreateScreen({
           <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
             <div className="relative h-64 w-full">
               <PlayableGame
-                key={`${preview.genre}-${preview.theme}-${preview.difficulty}-${preview.obstacle_style}-${preview.fx}-${preview.player_image}-${preview.bg_image}-${preview.music_url}-${preview.obstacle_image}`}
+                key={`${preview.genre}-${preview.theme}-${preview.difficulty}-${preview.obstacle_style}-${preview.fx}-${preview.lanes}-${preview.player_image}-${preview.bg_image}-${preview.music_url}-${preview.obstacle_image}`}
                 config={preview}
                 playing
               />
             </div>
             <p className="border-t border-white/10 px-3 py-2 text-[11px] font-semibold text-white/70">
-              Live preview · {preview.genre} · {preview.difficulty} · {preview.obstacle_style}
+              Live preview · {preview.genre}
+              {preview.lanes === 3 ? " · 3 lanes" : ""} · {preview.difficulty} ·{" "}
+              {preview.obstacle_style}
               {preview.music_url ? " · music" : ""}
               {preview.sfx ? " · sfx" : ""}
             </p>

@@ -41,13 +41,25 @@ function scoreMatches(lower: string, groups: Array<{ value: GameGenre; words: Re
 
 function pickTheme(lower: string): GameThemeId {
   if (/candy|zucker|süß|suess|pink|lolli|bonbon|sweet|sugar/.test(lower)) return "candy";
-  if (/city|stadt|gta|street|auto|car|crime|urban|straße|strasse/.test(lower)) return "city";
+  if (
+    /city|stadt|gta|street|auto|car|crime|urban|straße|strasse|subway|surfer|temple\s*run|lane\s*runner/.test(
+      lower
+    )
+  )
+    return "city";
   if (/neon|pipe|röhre|roehre|space|weltall|galaxy|purple/.test(lower)) return "purple-pipes";
   if (/monster|pet|tier|creature|boss|battle|zombie|drache|dragon/.test(lower)) return "monster";
   return "neon";
 }
 
 function pickGenre(lower: string): GameGenre {
+  // Famous-game → mechanics (never copy IP names into titles later)
+  if (/subway\s*surf|temple\s*run|endless\s*runner|lane\s*runner|3[\s-]*spur|drei\s*spur|spur(en)?\s*wechseln/.test(lower))
+    return "runner";
+  if (/flappy\s*bird|jetpack\s*joyride/.test(lower)) return "flappy";
+  if (/fruit\s*ninja|whack|piano\s*tiles/.test(lower)) return "tap";
+  if (/asteroid|space\s*invader|fall\s*down/.test(lower)) return "dodge";
+
   // Explicit flappy only when clearly asked — "bird" alone is not enough in DE/EN
   const explicit = scoreMatches(lower, [
     {
@@ -73,7 +85,7 @@ function pickGenre(lower: string): GameGenre {
     {
       value: "runner",
       words:
-        /rennen|laufen|sprint|runner|\brun\b|dash|jump|springen|parkour|hürde|huerde|hindernis\s*überspringen|ueberspringen|endless/gi,
+        /rennen|laufen|sprint|runner|\brun\b|dash|jump|springen|parkour|hürde|huerde|hindernis\s*überspringen|ueberspringen|endless|surfer|subway/gi,
     },
   ]);
   if (explicit) return explicit;
@@ -88,6 +100,13 @@ function pickGenre(lower: string): GameGenre {
   let hash = 0;
   for (let i = 0; i < lower.length; i++) hash = (hash * 31 + lower.charCodeAt(i)) >>> 0;
   return genres[hash % genres.length];
+}
+
+function pickLanes(lower: string, genre: GameGenre): 1 | 3 {
+  if (/subway|temple\s*run|3[\s-]*lane|3[\s-]*spur|drei\s*spur|lane\s*switch|spur(en)?\s*wechseln|endless\s*runner/.test(lower))
+    return 3;
+  if (genre === "runner" && /surfer|lane|spur/.test(lower)) return 3;
+  return 1;
 }
 
 function pickDuration(lower: string): number {
@@ -129,7 +148,10 @@ function pickFx(lower: string): FxStyle {
   return "glow";
 }
 
-function instructionFor(genre: GameGenre): string {
+function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1): string {
+  if (genre === "runner" && lanes === 3) {
+    return "Tap left/right to change lanes · center to jump";
+  }
   switch (genre) {
     case "flappy":
       return "Tap to flap — dodge the gaps";
@@ -211,6 +233,7 @@ export function craftTitle(prompt: string, genre: GameGenre): string {
 
   // Keyword → polished title (DE/EN)
   const specials: Array<[RegExp, GameGenre | "any", string]> = [
+    [/subway|temple\s*run|lane\s*runner|3[\s-]*spur/, "runner", "City Lane Rush"],
     [/stern|star/, "catch", "Star Catcher"],
     [/meteor|asteroid/, "dodge", "Meteor Dodge"],
     [/candy|bonbon|süß|suess|zucker/, "catch", "Candy Grab"],
@@ -294,6 +317,7 @@ export function buildPlayConfig(input: {
   control?: ControlStyle;
   hud_style?: HudStyle;
   lives?: number;
+  lanes?: 1 | 3;
   description?: string;
 }): PlayConfig {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
@@ -302,6 +326,7 @@ export function buildPlayConfig(input: {
   const genre = input.genre ?? pickGenre(lower);
   const duration_seconds = input.duration_seconds ?? pickDuration(lower);
   const difficulty = input.difficulty ?? pickDifficulty(lower);
+  const lanes = input.lanes ?? pickLanes(lower, genre);
   const palette = THEME_PALETTES[theme];
 
   let speed = DIFFICULTY_SPEED[difficulty];
@@ -327,14 +352,17 @@ export function buildPlayConfig(input: {
     accent_color: palette.accent,
     bg_top: palette.bgTop,
     bg_bottom: palette.bgBottom,
-    instruction: instructionFor(genre),
+    instruction: instructionFor(genre, lanes),
     difficulty,
     obstacle_style: input.obstacle_style ?? pickObstacleStyle(lower, genre),
     fx: input.fx ?? pickFx(lower),
     sfx: input.sfx ?? true,
-    control: input.control ?? (genre === "dodge" || genre === "catch" ? "drag" : "tap"),
+    control:
+      input.control ??
+      (lanes === 3 ? "tap" : genre === "dodge" || genre === "catch" ? "drag" : "tap"),
     hud_style: input.hud_style ?? "bold",
     lives: input.lives ?? (difficulty === "easy" ? 3 : difficulty === "insane" ? 1 : 2),
+    lanes,
   };
 }
 
@@ -391,6 +419,7 @@ export function resolvePlayConfig(game: {
       control: stored.control,
       hud_style: stored.hud_style,
       lives: stored.lives,
+      lanes: stored.lanes,
     });
     return {
       ...defaults,

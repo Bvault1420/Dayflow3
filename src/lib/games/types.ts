@@ -40,6 +40,8 @@ export type PlayConfig = {
   control?: ControlStyle;
   hud_style?: HudStyle;
   lives?: number;
+  /** 3 = subway-style lane runner (swipe/tap between lanes) */
+  lanes?: 1 | 3;
 };
 
 export type GeneratedGameDraft = {
@@ -100,21 +102,21 @@ export const DIFFICULTY_SPEED: Record<Difficulty, number> = {
 
 /** Safe prompt starters — original Kairos ideas, no third-party IP. */
 export const IDEA_STARTERS = [
+  "Baue ein 3-Spur Stadt-Runner wie ein Subway-Style Spiel — Spuren wechseln und springen",
   "Neon flappy through glowing pipes",
   "City sprint jump over crates",
   "Catch falling candy, dodge bombs",
   "Tap blinking orbs before they vanish",
   "Dodge meteors in a tunnel for 20s",
   "Monster mash — smash green targets",
-  "Chill runner with slow jumps",
-  "Hardcore flappy — tiny gaps",
+  "Temple-style lane runner with traps",
 ];
 
 export const REFINE_CHIPS = [
   { label: "Harder", append: " Make it harder and faster." },
   { label: "Chill", append: " Make it easy and chill." },
+  { label: "3 lanes", append: " Use a 3-lane endless runner with lane switching." },
   { label: "More glow", append: " Add neon glow effects." },
   { label: "Shorter", append: " Keep it to 15 seconds." },
   { label: "Longer", append: " Make it 45 seconds." },
-  { label: "More juice", append: " Add screen shake and trails." },
 ];

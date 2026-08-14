@@ -12,7 +12,7 @@ type Props = {
 
 type Target = { x: number; y: number; r: number; life: number; max: number; bad?: boolean };
 type Pipe = { x: number; gapY: number; gapH: number; scored?: boolean };
-type Obstacle = { x: number; y: number; w: number; h: number; scored?: boolean };
+type Obstacle = { x: number; y: number; w: number; h: number; scored?: boolean; lane?: number };
 type Faller = { x: number; y: number; r: number; vy: number; bad: boolean };
 
 /**
@@ -76,6 +76,7 @@ export function PlayableGame({ config, playing, className }: Props) {
     let shake = 0;
     let flash = 0;
     let runX = 0;
+    let lane = 1; // 0..2 for 3-lane mode
     let playerImg: HTMLImageElement | null = null;
     let bgImg: HTMLImageElement | null = null;
     let obstacleImg: HTMLImageElement | null = null;
@@ -187,6 +188,18 @@ export function PlayableGame({ config, playing, className }: Props) {
       if (config.genre === "flappy") {
         vy = jump;
         if (sfxOn) kairosSfx.flap();
+      } else if (config.genre === "runner" && (config.lanes || 1) === 3) {
+        const third = W / 3;
+        if (x < third) {
+          lane = Math.max(0, lane - 1);
+          if (sfxOn) kairosSfx.tap();
+        } else if (x > third * 2) {
+          lane = Math.min(2, lane + 1);
+          if (sfxOn) kairosSfx.tap();
+        } else if (playerY >= groundY - 2) {
+          vy = jump * 1.15;
+          if (sfxOn) kairosSfx.flap();
+        }
       } else if (config.genre === "runner") {
         if (playerY >= groundY - 2) {
           vy = jump * 1.15;
@@ -415,6 +428,14 @@ export function PlayableGame({ config, playing, className }: Props) {
 
     const tickRunner = (dt: number) => {
       groundY = H * 0.78;
+      const useLanes = (config.lanes || 1) === 3;
+      const laneXs = [W * 0.22, W * 0.5, W * 0.78];
+
+      if (useLanes) {
+        const targetX = laneXs[lane] ?? W * 0.5;
+        playerX += (targetX - playerX) * Math.min(1, 14 * dt);
+      }
+
       if (state.started) {
         runX += speed * 60 * dt;
         vy += gravity * 70 * dt;
@@ -425,42 +446,86 @@ export function PlayableGame({ config, playing, className }: Props) {
         }
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
-          obstacles.push({
-            x: W + 30,
-            y: groundY - (28 + Math.random() * 26),
-            w: 28 + Math.random() * 24,
-            h: 28 + Math.random() * 34,
-          });
-          spawnTimer = 1.1 / config.speed;
+          if (useLanes) {
+            const laneId = Math.floor(Math.random() * 3);
+            obstacles.push({
+              x: laneXs[laneId] - 18,
+              y: -40,
+              w: 36,
+              h: 36,
+              lane: laneId,
+            });
+          } else {
+            obstacles.push({
+              x: W + 30,
+              y: groundY - (28 + Math.random() * 26),
+              w: 28 + Math.random() * 24,
+              h: 28 + Math.random() * 34,
+            });
+          }
+          spawnTimer = (useLanes ? 0.85 : 1.1) / config.speed;
         }
-        for (const o of obstacles) o.x -= speed * 70 * dt;
-        obstacles = obstacles.filter((o) => o.x > -80);
+
         for (const o of obstacles) {
-          if (
+          if (useLanes) {
+            o.y += speed * 220 * dt;
+            const progress = Math.min(1, o.y / groundY);
+            o.w = 28 + progress * 18;
+            o.h = 28 + progress * 18;
+            o.x = (laneXs[o.lane ?? 1] ?? W * 0.5) - o.w / 2;
+          } else {
+            o.x -= speed * 70 * dt;
+          }
+        }
+        obstacles = obstacles.filter((o) => (useLanes ? o.y < H + 60 : o.x > -80));
+
+        for (const o of obstacles) {
+          const hit =
             playerX + 14 > o.x &&
             playerX - 14 < o.x + o.w &&
             playerY + 14 > o.y &&
-            playerY - 14 < o.y + o.h
-          ) {
-            fail();
-          }
-          if (!o.scored && o.x + o.w < playerX) {
+            playerY - 14 < o.y + o.h;
+          // In lane mode, jumping clears low obstacles
+          const jumpedOver = useLanes && playerY < groundY - 28 && o.h < 50;
+          if (hit && !jumpedOver) fail();
+          if (!o.scored && (useLanes ? o.y > playerY + 20 : o.x + o.w < playerX)) {
             o.scored = true;
             bumpScore(1);
           }
         }
       }
 
-      // ground
+      // ground / lanes
       ctx.fillStyle = "rgba(255,255,255,0.12)";
       ctx.fillRect(0, groundY + 16, W, H);
-      ctx.strokeStyle = config.accent_color;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.moveTo(0, groundY + 16);
-      ctx.lineTo(W, groundY + 16);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+      if (useLanes) {
+        ctx.strokeStyle = config.accent_color;
+        ctx.globalAlpha = 0.25;
+        for (const lx of laneXs) {
+          ctx.beginPath();
+          ctx.moveTo(lx, 40);
+          ctx.lineTo(lx, groundY + 16);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        // track trapezoid vibe
+        ctx.fillStyle = "rgba(255,255,255,0.06)";
+        ctx.beginPath();
+        ctx.moveTo(W * 0.35, 50);
+        ctx.lineTo(W * 0.65, 50);
+        ctx.lineTo(W * 0.92, groundY + 16);
+        ctx.lineTo(W * 0.08, groundY + 16);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = config.accent_color;
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY + 16);
+        ctx.lineTo(W, groundY + 16);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
 
       for (const o of obstacles) {
         drawObstacleShape(o.x, o.y, o.w, o.h);

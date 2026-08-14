@@ -15,29 +15,40 @@ const DIFFICULTIES: Difficulty[] = ["easy", "normal", "hard", "insane"];
 const OBSTACLES: ObstacleStyle[] = ["pipes", "blocks", "orbs", "spikes"];
 const FX: FxStyle[] = ["none", "trail", "glow", "shake"];
 
-const SYSTEM = `You design short mobile arcade games (10-60 seconds) for Kairos.
-The playable engine ONLY supports these genres: flappy, runner, dodge, catch, tap.
-You MUST match the user's idea — do NOT default to flappy unless they clearly want flying/flapping through gaps.
-Return JSON only with keys:
-- title: catchy short game name (max 42 chars). NEVER paste the full user prompt as the title.
-- description: 1-2 sentences max 180 chars explaining the fantasy/rules (not a copy of the prompt).
-- theme: neon | purple-pipes | city | candy | monster
-- duration_seconds: integer 10-60
-- genre: flappy | runner | dodge | catch | tap
-- difficulty: easy | normal | hard | insane
-- obstacle_style: pipes | blocks | orbs | spikes
-- fx: none | trail | glow | shake
-- speed: number 0.7-1.45
-- jump: number 0.8-1.3
-- lives: integer 1-5
-Understand German and English prompts.`;
+const SYSTEM = `You are the Kairos game designer. The user describes a short mobile game (10-60s). You return ONE complete playable config as JSON.
+
+Engine genres ONLY: flappy | runner | dodge | catch | tap
+- flappy = tap to flap through gaps (side view)
+- runner = endless run; set lanes=3 for subway/temple-style lane switching + jump; lanes=1 for simple jump runner
+- dodge = move left/right to avoid falling threats
+- catch = catch good items, avoid bad
+- tap = tap targets before they vanish
+
+If the user says "like Subway Surfers / Temple Run / endless runner":
+→ genre=runner, lanes=3, theme=city (or neon), obstacle_style=blocks, control=tap
+Invent an ORIGINAL title (e.g. "City Lane Rush"). NEVER use trademark names (Subway Surfers, Temple Run, Mario, Flappy Bird, etc.) as the title.
+
+Keys (JSON only):
+- title (max 42 chars, original, not the raw prompt)
+- description (max 180, explain the fantasy/controls)
+- theme: neon|purple-pipes|city|candy|monster
+- genre: flappy|runner|dodge|catch|tap
+- lanes: 1 or 3
+- difficulty: easy|normal|hard|insane
+- obstacle_style: pipes|blocks|orbs|spikes
+- fx: none|trail|glow|shake
+- speed: 0.7-1.45
+- jump: 0.8-1.3
+- lives: 1-5
+Do NOT set duration_seconds — the user chooses duration in the UI.
+Match German and English. Build the WHOLE game from the idea.`;
 
 type AiResult = {
   title: string;
   description: string;
   theme: GameThemeId;
-  duration_seconds: number;
   genre: GameGenre;
+  lanes?: 1 | 3;
   difficulty?: Difficulty;
   obstacle_style?: ObstacleStyle;
   fx?: FxStyle;
@@ -45,6 +56,9 @@ type AiResult = {
   jump?: number;
   lives?: number;
 };
+
+const BANNED_TITLE =
+  /\b(subway\s*surfers?|temple\s*run|flappy\s*bird|mario|sonic|pokemon|fortnite|minecraft|disney|nintendo)\b/i;
 
 async function callChat(opts: {
   url: string;
@@ -60,29 +74,38 @@ async function callChat(opts: {
     },
     body: JSON.stringify({
       model: opts.model,
-      temperature: 0.55,
+      temperature: 0.5,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: opts.prompt },
+        {
+          role: "user",
+          content: `Build the full game config for this idea:\n${opts.prompt}`,
+        },
       ],
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.warn("AI generate failed", res.status, await res.text());
+    return null;
+  }
   const data = await res.json();
   const raw = data.choices?.[0]?.message?.content;
   if (!raw) return null;
   return JSON.parse(raw) as AiResult;
 }
 
-function normalize(parsed: AiResult, prompt: string) {
+function normalize(
+  parsed: AiResult,
+  prompt: string,
+  userDuration: number | null
+) {
   const local = generateGameFromPrompt(prompt);
   const theme = THEMES.includes(parsed.theme) ? parsed.theme : local.theme;
   const genre = GENRES.includes(parsed.genre) ? parsed.genre : local.play.genre;
-  const duration_seconds = Math.min(
-    60,
-    Math.max(10, Number(parsed.duration_seconds) || local.duration_seconds)
-  );
+  const duration_seconds = userDuration
+    ? Math.min(60, Math.max(10, userDuration))
+    : local.duration_seconds;
   const difficulty = DIFFICULTIES.includes(parsed.difficulty as Difficulty)
     ? (parsed.difficulty as Difficulty)
     : local.play.difficulty;
@@ -90,12 +113,13 @@ function normalize(parsed: AiResult, prompt: string) {
     ? (parsed.obstacle_style as ObstacleStyle)
     : local.play.obstacle_style;
   const fx = FX.includes(parsed.fx as FxStyle) ? (parsed.fx as FxStyle) : local.play.fx;
+  const lanes: 1 | 3 = parsed.lanes === 3 || local.play.lanes === 3 ? 3 : 1;
 
   let title = String(parsed.title || local.title).trim().slice(0, 48);
-  // Guard: if model pasted the prompt, re-craft
-  if (!title || title.length > 42 || title.toLowerCase() === prompt.toLowerCase().slice(0, title.length)) {
+  if (!title || BANNED_TITLE.test(title) || title.toLowerCase() === prompt.toLowerCase().slice(0, title.length)) {
     title = local.title;
   }
+  if (BANNED_TITLE.test(title)) title = lanes === 3 ? "City Lane Rush" : local.title;
 
   const play = buildPlayConfig({
     prompt,
@@ -106,14 +130,22 @@ function normalize(parsed: AiResult, prompt: string) {
     difficulty,
     obstacle_style,
     fx,
+    lanes,
     lives: Math.min(5, Math.max(1, Number(parsed.lives) || local.play.lives || 2)),
   });
   play.speed = Math.min(1.45, Math.max(0.7, Number(parsed.speed) || play.speed));
   play.jump = Math.min(1.3, Math.max(0.8, Number(parsed.jump) || play.jump));
+  play.lanes = lanes;
+  play.instruction =
+    genre === "runner" && lanes === 3
+      ? "Tap left/right to change lanes · center to jump"
+      : play.instruction;
 
   return {
     title: play.title,
-    description: String(parsed.description || local.description).slice(0, 180),
+    description: String(parsed.description || local.description)
+      .replace(BANNED_TITLE, "arcade runner")
+      .slice(0, 180),
     theme: play.theme,
     duration_seconds: play.duration_seconds,
     play,
@@ -121,11 +153,18 @@ function normalize(parsed: AiResult, prompt: string) {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { prompt?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    prompt?: string;
+    duration_seconds?: number;
+  } | null;
   const prompt = body?.prompt?.trim() || "";
   if (!prompt) {
     return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
   }
+  const userDuration =
+    typeof body?.duration_seconds === "number" && Number.isFinite(body.duration_seconds)
+      ? Math.min(60, Math.max(10, Math.round(body.duration_seconds)))
+      : null;
 
   const groqKey = process.env.GROQ_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
@@ -139,10 +178,13 @@ export async function POST(request: Request) {
         prompt,
       });
       if (parsed) {
-        return NextResponse.json({ ...normalize(parsed, prompt), source: "groq" });
+        return NextResponse.json({
+          ...normalize(parsed, prompt, userDuration),
+          source: "groq",
+        });
       }
-    } catch {
-      /* fall through */
+    } catch (e) {
+      console.warn("groq error", e);
     }
   }
 
@@ -155,16 +197,24 @@ export async function POST(request: Request) {
         prompt,
       });
       if (parsed) {
-        return NextResponse.json({ ...normalize(parsed, prompt), source: "openai" });
+        return NextResponse.json({
+          ...normalize(parsed, prompt, userDuration),
+          source: "openai",
+        });
       }
     } catch {
       /* fall through */
     }
   }
 
+  const local = generateGameFromPrompt(prompt);
+  if (userDuration) {
+    local.duration_seconds = userDuration;
+    local.play.duration_seconds = userDuration;
+  }
   return NextResponse.json({
-    ...generateGameFromPrompt(prompt),
+    ...local,
     source: "local",
-    hint: "Add GROQ_API_KEY (free) or OPENAI_API_KEY for smarter titles & genre matching.",
+    hint: "Add GROQ_API_KEY for smarter full-game generation.",
   });
 }
