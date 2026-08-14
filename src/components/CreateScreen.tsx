@@ -302,8 +302,13 @@ export function CreateScreen({
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
       applyDraft(draft);
+      const src = draft.source === "groq" || draft.source === "openai" ? draft.source : "local";
       setTab("play");
-      setStatus(`Ready — tweak play style, look, and media.`);
+      setStatus(
+        src === "local"
+          ? `Ready (${src}) — genre ${draft.play?.genre || "arcade"}. Add GROQ_API_KEY for smarter AI.`
+          : `Ready (${src} AI) — “${draft.title}” · ${draft.play?.genre}`
+      );
     } catch {
       applyDraft(generateGameFromPrompt(idea));
       setTab("play");

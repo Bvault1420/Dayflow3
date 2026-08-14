@@ -26,28 +26,78 @@ export type {
   HudStyle,
 } from "./types";
 
+type Scored<T> = { value: T; score: number };
+
+function scoreMatches(lower: string, groups: Array<{ value: GameGenre; words: RegExp }>): GameGenre | null {
+  const scored: Scored<GameGenre>[] = [];
+  for (const g of groups) {
+    const m = lower.match(g.words);
+    if (m) scored.push({ value: g.value, score: m.length + (m[0]?.length || 0) / 10 });
+  }
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].value;
+}
+
 function pickTheme(lower: string): GameThemeId {
-  if (/candy|sugar|sweet|pink|lolli/.test(lower)) return "candy";
-  if (/city|gta|street|car|crime|urban/.test(lower)) return "city";
-  if (/flappy|pipe|bird|fly|neon|space/.test(lower)) return "purple-pipes";
-  if (/monster|pet|creature|boss|battle|zombie/.test(lower)) return "monster";
+  if (/candy|zucker|süß|suess|pink|lolli|bonbon|sweet|sugar/.test(lower)) return "candy";
+  if (/city|stadt|gta|street|auto|car|crime|urban|straße|strasse/.test(lower)) return "city";
+  if (/neon|pipe|röhre|roehre|space|weltall|galaxy|purple/.test(lower)) return "purple-pipes";
+  if (/monster|pet|tier|creature|boss|battle|zombie|drache|dragon/.test(lower)) return "monster";
   return "neon";
 }
 
 function pickGenre(lower: string): GameGenre {
-  if (/flappy|bird|pipe|fly|flight|wing/.test(lower)) return "flappy";
-  if (/catch|collect|fruit|coin|grab|candy|sugar|sweet/.test(lower)) return "catch";
-  if (/tap|whack|smash|click|target|pop/.test(lower)) return "tap";
-  if (/dodge|avoid|fall|rain|meteor|asteroid|tunnel/.test(lower)) return "dodge";
-  if (/monster|battle|boss/.test(lower)) return "tap";
-  if (/run|runner|sprint|dash|jump|parkour|hurdle|city|car|gta|crime/.test(lower))
-    return "runner";
-  return "flappy";
+  // Explicit flappy only when clearly asked — "bird" alone is not enough in DE/EN
+  const explicit = scoreMatches(lower, [
+    {
+      value: "flappy",
+      words:
+        /\bflappy\b|flappy\s*bird|\bfliegen\b|\bflug\b|flügel|fluegel|hoch\s*und\s*runter|up\s*and\s*down|durch\s*(die\s*)?(röhren|roehren|pipes)/gi,
+    },
+    {
+      value: "catch",
+      words:
+        /fangen|fängt|faengt|auffangen|sammeln|collect|catch|grab|coin|münze|muenze|fruit|obst|\bsterne?\b|\bstars?\b|items?\s*auffangen|bonbon/gi,
+    },
+    {
+      value: "tap",
+      words:
+        /\btipp(e|en|t)?\b|antippen|klicken|\btap\b|whack|smash|ziel|target|\bpop\b|treffen|zerstampfen|hämmern|haemmern|orbs?\s*(tippen|antippen)?/gi,
+    },
+    {
+      value: "dodge",
+      words:
+        /ausweichen|dodge|avoid|meteor|asteroid|tunnel|regen|rain|hindernisse\s*ausweichen|nicht\s*treffen|meiden|aus\s*dem\s*weg/gi,
+    },
+    {
+      value: "runner",
+      words:
+        /rennen|laufen|sprint|runner|\brun\b|dash|jump|springen|parkour|hürde|huerde|hindernis\s*überspringen|ueberspringen|endless/gi,
+    },
+  ]);
+  if (explicit) return explicit;
+
+  // Soft theme cues
+  if (/kampf|fight|boss|battle/.test(lower)) return "tap";
+  if (/auto|car|city|stadt/.test(lower)) return "runner";
+  if (/süß|suess|candy|bonbon/.test(lower)) return "catch";
+
+  // Stable variety from prompt hash — never always flappy
+  const genres: GameGenre[] = ["runner", "dodge", "catch", "tap", "flappy"];
+  let hash = 0;
+  for (let i = 0; i < lower.length; i++) hash = (hash * 31 + lower.charCodeAt(i)) >>> 0;
+  return genres[hash % genres.length];
 }
 
 function pickDuration(lower: string): number {
-  if (/60|minute|long/.test(lower)) return 60;
-  if (/10|quick|short|blitz/.test(lower)) return 15;
+  const num = lower.match(/\b(\d{1,2})\s*(s|sec|sek|seconds?|sekunden)?\b/);
+  if (num) {
+    const n = Number(num[1]);
+    if (n >= 10 && n <= 60) return n;
+  }
+  if (/60|minute|lang|long/.test(lower)) return 60;
+  if (/10|quick|kurz|blitz|short/.test(lower)) return 15;
   if (/45|medium/.test(lower)) return 45;
   if (/20/.test(lower)) return 20;
   if (/40/.test(lower)) return 40;
@@ -55,40 +105,180 @@ function pickDuration(lower: string): number {
 }
 
 function pickDifficulty(lower: string): Difficulty {
-  if (/insane|crazy|extreme/.test(lower)) return "insane";
-  if (/hard|hardcore/.test(lower)) return "hard";
-  if (/easy|chill|slow|casual/.test(lower)) return "easy";
+  if (/insane|crazy|extreme|wahnsinn|unmöglich|unmoeglich/.test(lower)) return "insane";
+  if (/hard|schwer|hardcore|schwierig/.test(lower)) return "hard";
+  if (/easy|chill|slow|casual|einfach|leicht/.test(lower)) return "easy";
   return "normal";
 }
 
 function pickObstacleStyle(lower: string, genre: GameGenre): ObstacleStyle {
-  if (/spike|thorn/.test(lower)) return "spikes";
-  if (/orb|bubble|ball|circle/.test(lower)) return "orbs";
-  if (/block|crate|box|brick/.test(lower)) return "blocks";
-  if (/pipe/.test(lower) || genre === "flappy") return "pipes";
-  return genre === "runner" ? "blocks" : "orbs";
+  if (/spike|dorn|stachel|thorn/.test(lower)) return "spikes";
+  if (/orb|bubble|ball|kreis|kugel|circle/.test(lower)) return "orbs";
+  if (/block|crate|kiste|box|brick|stein/.test(lower)) return "blocks";
+  if (/pipe|röhre|roehre/.test(lower)) return "pipes";
+  if (genre === "flappy") return "pipes";
+  if (genre === "runner") return "blocks";
+  if (genre === "tap") return "orbs";
+  return "orbs";
 }
 
 function pickFx(lower: string): FxStyle {
-  if (/shake|juice/.test(lower)) return "shake";
-  if (/glow|neon/.test(lower)) return "glow";
-  if (/trail|motion/.test(lower)) return "trail";
+  if (/shake|wackel|juice/.test(lower)) return "shake";
+  if (/trail|spur|motion/.test(lower)) return "trail";
+  if (/glow|neon|leuchten/.test(lower)) return "glow";
   return "glow";
 }
 
 function instructionFor(genre: GameGenre): string {
   switch (genre) {
     case "flappy":
-      return "Tap to flap — dodge the pipes";
+      return "Tap to flap — dodge the gaps";
     case "runner":
       return "Tap to jump — clear the obstacles";
     case "dodge":
-      return "Tap left / right to dodge";
+      return "Move left / right to dodge";
     case "catch":
       return "Move & catch the good stuff";
     case "tap":
       return "Tap the targets before they vanish";
   }
+}
+
+const STOP = new Set(
+  [
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "with",
+    "my",
+    "your",
+    "ein",
+    "eine",
+    "einer",
+    "eines",
+    "der",
+    "die",
+    "das",
+    "und",
+    "oder",
+    "mit",
+    "von",
+    "zu",
+    "im",
+    "am",
+    "wo",
+    "man",
+    "ich",
+    "will",
+    "möchte",
+    "moechte",
+    "mach",
+    "mache",
+    "machen",
+    "spiel",
+    "spiele",
+    "game",
+    "bitte",
+    "dass",
+    "daß",
+    "wie",
+    "so",
+    "auch",
+    "noch",
+    "dann",
+    "build",
+    "make",
+    "create",
+    "erstelle",
+    "erstellen",
+  ].map((w) => w.toLowerCase())
+);
+
+/** Craft a short game title from the idea — not the raw prompt dump. */
+export function craftTitle(prompt: string, genre: GameGenre): string {
+  const idea = prompt.trim().replace(/\s+/g, " ");
+  const lower = idea.toLowerCase();
+
+  const quoted = idea.match(/[„""](.+?)[„""]/);
+  if (quoted?.[1]) return quoted[1].slice(0, 40);
+
+  // Keyword → polished title (DE/EN)
+  const specials: Array<[RegExp, GameGenre | "any", string]> = [
+    [/stern|star/, "catch", "Star Catcher"],
+    [/meteor|asteroid/, "dodge", "Meteor Dodge"],
+    [/candy|bonbon|süß|suess|zucker/, "catch", "Candy Grab"],
+    [/stadt|city|street/, "runner", "City Sprint"],
+    [/neon.*pipe|pipe.*neon|röhre|roehre/, "flappy", "Neon Pipe Dash"],
+    [/\bflappy\b/, "flappy", "Flappy Pulse"],
+    [/monster/, "tap", "Monster Smash"],
+    [/tunnel/, "dodge", "Tunnel Evade"],
+    [/\borbs?\b/, "tap", "Orb Pop"],
+    [/coin|münze|muenze/, "catch", "Coin Rush"],
+  ];
+  for (const [re, wantGenre, title] of specials) {
+    if (re.test(lower) && (wantGenre === "any" || wantGenre === genre)) {
+      return title;
+    }
+  }
+  // Genre-agnostic keyword fallbacks
+  for (const [re, , title] of specials) {
+    if (re.test(lower)) return title;
+  }
+
+  const verbish =
+    /^(fang|fängt|sammel|renn|lauf|spring|tipp|klick|dodge|catch|run|jump|make|build|mach)/i;
+  const words = idea
+    .replace(/[^a-zA-ZäöüÄÖÜß0-9\s-]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !STOP.has(w.toLowerCase()) && !verbish.test(w));
+
+  const noun = words.sort((a, b) => b.length - a.length)[0];
+  const tag: Record<GameGenre, string> = {
+    flappy: "Flight",
+    runner: "Sprint",
+    dodge: "Dodge",
+    catch: "Catch",
+    tap: "Tap",
+  };
+
+  if (noun) {
+    const nice = noun[0].toUpperCase() + noun.slice(1);
+    return `${nice} ${tag[genre]}`.slice(0, 42);
+  }
+
+  const vibe = /neon/.test(lower)
+    ? "Neon"
+    : /candy|süß|suess/.test(lower)
+      ? "Candy"
+      : /city|stadt/.test(lower)
+        ? "City"
+        : /monster/.test(lower)
+          ? "Monster"
+          : "Kairos";
+  return `${vibe} ${tag[genre]}`.slice(0, 42);
+}
+
+function craftDescription(prompt: string, genre: GameGenre, duration: number): string {
+  const idea = prompt.trim().replace(/\s+/g, " ");
+  if (idea.length >= 24 && idea.length <= 160 && !/^ein spiel/i.test(idea)) {
+    return idea.slice(0, 180);
+  }
+  const hooks: Record<GameGenre, string> = {
+    flappy: "Flap through gaps and survive the clock.",
+    runner: "Sprint, jump obstacles, and push your score.",
+    dodge: "Stay alive by sliding clear of danger.",
+    catch: "Snag the good drops — skip the bad ones.",
+    tap: "Hit targets before they vanish.",
+  };
+  return `${hooks[genre]} ${duration}s run. Inspired by: ${idea.slice(0, 80)}`.slice(0, 180);
 }
 
 export function buildPlayConfig(input: {
@@ -104,6 +294,7 @@ export function buildPlayConfig(input: {
   control?: ControlStyle;
   hud_style?: HudStyle;
   lives?: number;
+  description?: string;
 }): PlayConfig {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
   const lower = idea.toLowerCase();
@@ -114,20 +305,13 @@ export function buildPlayConfig(input: {
   const palette = THEME_PALETTES[theme];
 
   let speed = DIFFICULTY_SPEED[difficulty];
-  if (/fast/.test(lower) && difficulty === "normal") speed = 1.2;
+  if (/fast|schnell/.test(lower) && difficulty === "normal") speed = 1.2;
 
   let jump = 1;
-  if (/high|floaty/.test(lower)) jump = 1.25;
-  else if (/heavy|low/.test(lower)) jump = 0.85;
+  if (/high|floaty|hoch/.test(lower)) jump = 1.25;
+  else if (/heavy|low|schwer/.test(lower)) jump = 0.85;
 
-  const firstSentence =
-    idea
-      .split(/[.!?\n]/)
-      .map((s) => s.trim())
-      .find(Boolean) || "Untitled Moment";
-
-  let title = (input.title || firstSentence).slice(0, 48);
-  if (/flappy/.test(lower) && !/flappy/i.test(title)) title = `Flappy ${title}`.slice(0, 48);
+  const title = (input.title || craftTitle(idea, genre)).slice(0, 48);
 
   return {
     v: 1,
@@ -158,10 +342,7 @@ export function buildPlayConfig(input: {
 export function generateGameFromPrompt(prompt: string): GeneratedGameDraft {
   const idea = prompt.trim().replace(/\s+/g, " ");
   const play = buildPlayConfig({ prompt: idea });
-  const description =
-    idea.length > 12
-      ? idea.slice(0, 180)
-      : `A ${play.duration_seconds}s ${play.genre} moment: ${idea || "your idea"}.`;
+  const description = craftDescription(idea, play.genre, play.duration_seconds);
 
   return {
     title: play.title,
