@@ -12,7 +12,12 @@ function resolveOrigin(request: Request): string {
   }
 
   const host = request.headers.get("host");
-  if (host && !host.includes("localhost") && !host.startsWith("127.0.0.1")) {
+  if (
+    host &&
+    !host.includes("localhost") &&
+    !host.startsWith("127.0.0.1") &&
+    !host.startsWith("[::1]")
+  ) {
     const proto = url.protocol.replace(":", "") || "https";
     return `${proto}://${host}`;
   }

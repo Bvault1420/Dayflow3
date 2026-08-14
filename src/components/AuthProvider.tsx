@@ -201,7 +201,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      /* Firefox Enhanced Tracking can block the revoke call */
+    }
+    try {
+      await supabase.auth.signOut({ scope: "global" });
+    } catch {
+      /* still clear local session */
+    }
+    setSession(null);
+    setUser(null);
     setProfile(null);
   }, [supabase]);
 

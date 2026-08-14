@@ -188,8 +188,12 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <button
           type="button"
           onClick={async () => {
-            await signOut();
-            onBack();
+            try {
+              await signOut();
+              onBack();
+            } catch {
+              window.location.assign("/auth/signout");
+            }
           }}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white py-3 text-sm font-semibold text-ink"
         >
