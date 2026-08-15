@@ -52,6 +52,8 @@ export type PlayConfig = {
   goal?: GameGoal;
   player_shape?: PlayerShape;
   seed?: number;
+  ground_color?: string;
+  decor_color?: string;
 };
 
 export type GeneratedGameDraft = {

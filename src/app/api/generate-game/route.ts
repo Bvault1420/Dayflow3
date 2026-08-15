@@ -52,7 +52,11 @@ JSON keys (all required except duration_seconds):
 - collectible: short noun (cash, stars, pearls…)
 - threat: short noun (cars, meteors, bombs…)
 - instruction: one line, max 64 chars, exact controls
-- player_color, obstacle_color, accent_color, bg_top, bg_bottom: unique #RRGGBB matching the vibe
+- player_color, obstacle_color, accent_color, bg_top, bg_bottom, ground_color, decor_color: a cohesive UNIQUE #RRGGBB art direction
+  If the user names a color (red, gold, dunkel, sunset…), that color leads the player or mood.
+  If they do NOT name a color, invent a strong cinematic palette for THIS fantasy (sunset amber, arctic ice, rain noir, toxic lime, deep sea, sakura, volcanic…).
+  NEVER reuse the default Kairos greens/blues (#7CFFB2, #4aa3ff, #2457ff, #0a1224, #0d1b2a) unless the prompt asks for neon-green or city-blue.
+  Player must pop against the background (high contrast). Obstacles complementary or darker.
 - duration_seconds: 10-60 only if the prompt states a length; else omit
 
 German and English. Build the WHOLE unique game from the idea. Two different prompts must never share the same title+colors+instruction.`;
@@ -81,6 +85,8 @@ type AiResult = {
   accent_color?: string;
   bg_top?: string;
   bg_bottom?: string;
+  ground_color?: string;
+  decor_color?: string;
   duration_seconds?: number;
 };
 
@@ -183,6 +189,8 @@ function normalize(parsed: AiResult, prompt: string, userDuration: number | null
     accent_color: hex(parsed.accent_color),
     bg_top: hex(parsed.bg_top),
     bg_bottom: hex(parsed.bg_bottom),
+    ground_color: hex(parsed.ground_color),
+    decor_color: hex(parsed.decor_color),
     instruction: parsed.instruction,
     speed: Number(parsed.speed) || undefined,
     jump: Number(parsed.jump) || undefined,

@@ -255,47 +255,72 @@ export function PlayableGame({ config, playing, className }: Props) {
     const drawBackground = () => {
       const g = ctx.createLinearGradient(0, 0, 0, H);
       g.addColorStop(0, config.bg_top);
-      g.addColorStop(1, config.bg_bottom);
+      g.addColorStop(0.55, config.bg_bottom);
+      g.addColorStop(1, config.ground_color || config.bg_bottom);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
 
       if (bgImg) {
         ctx.globalAlpha = 0.55;
-        // cover
         const scale = Math.max(W / bgImg.width, H / bgImg.height);
         const dw = bgImg.width * scale;
         const dh = bgImg.height * scale;
         ctx.drawImage(bgImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
         ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(8,14,28,0.35)";
+        ctx.fillStyle = "rgba(8,14,28,0.28)";
         ctx.fillRect(0, 0, W, H);
       } else {
         const world = config.world || config.theme;
-        ctx.globalAlpha = 0.2;
-        ctx.fillStyle = config.obstacle_color;
         const seed = config.seed || 1;
-        for (let i = 0; i < 7; i++) {
-          const x = ((i * 97 + runX * (world === "city" || config.genre === "roam" ? 0.55 : 0.2) + (seed % 40)) % (W + 90)) - 40;
-          const y = (i * 73 + (seed % 30)) % (H * 0.62);
-          const bw = 16 + ((seed + i * 13) % 4) * 10;
-          const bh = 50 + ((seed + i * 9) % 5) * 22;
-          if (world === "city" || config.genre === "roam") {
-            ctx.fillRect(x, H * 0.72 - bh, bw, bh);
-            ctx.globalAlpha = 0.35;
+        const decor = config.decor_color || config.obstacle_color;
+        const cityish = world === "city" || config.genre === "roam";
+
+        // horizon glow
+        const halo = ctx.createRadialGradient(W * 0.5, H * 0.42, 10, W * 0.5, H * 0.42, W * 0.7);
+        halo.addColorStop(0, `${config.accent_color}33`);
+        halo.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = halo;
+        ctx.fillRect(0, 0, W, H);
+
+        for (let i = 0; i < 9; i++) {
+          const drift = cityish ? 0.55 : world === "ocean" ? 0.12 : 0.22;
+          const x = ((i * 97 + runX * drift + (seed % 40)) % (W + 100)) - 50;
+          const y = (i * 67 + (seed % 30)) % (H * 0.58);
+          const bw = 18 + ((seed + i * 13) % 5) * 9;
+          const bh = 56 + ((seed + i * 9) % 6) * 20;
+          if (cityish) {
+            ctx.fillStyle = decor;
+            ctx.globalAlpha = 0.38 + (i % 3) * 0.08;
+            ctx.fillRect(x, H * 0.7 - bh, bw, bh);
+            ctx.globalAlpha = 0.55;
             ctx.fillStyle = config.accent_color;
-            ctx.fillRect(x + 4, H * 0.72 - bh + 8, 4, 6);
-            ctx.fillStyle = config.obstacle_color;
-            ctx.globalAlpha = 0.2;
+            ctx.fillRect(x + 5, H * 0.7 - bh + 10, 5, 7);
+            ctx.fillRect(x + bw - 12, H * 0.7 - bh + 22, 5, 7);
           } else if (world === "space") {
+            ctx.globalAlpha = 0.35 + (i % 4) * 0.12;
+            ctx.fillStyle = config.accent_color;
             ctx.beginPath();
-            ctx.arc(x, y, 3 + (i % 3), 0, Math.PI * 2);
+            ctx.arc(x, y, 1.5 + (i % 4), 0, Math.PI * 2);
             ctx.fill();
           } else if (world === "ocean") {
+            ctx.globalAlpha = 0.16;
+            ctx.fillStyle = config.accent_color;
             ctx.beginPath();
-            ctx.ellipse(x, y, bw * 0.4, 8, 0, 0, Math.PI * 2);
+            ctx.ellipse(x, 40 + (i * 38) % (H * 0.7), bw * 0.55, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (world === "forest" || world === "temple") {
+            ctx.globalAlpha = 0.28;
+            ctx.fillStyle = decor;
+            ctx.beginPath();
+            ctx.moveTo(x, H * 0.72);
+            ctx.lineTo(x + bw / 2, H * 0.72 - bh);
+            ctx.lineTo(x + bw, H * 0.72);
+            ctx.closePath();
             ctx.fill();
           } else {
-            ctx.fillRect(x, y, bw, bh * 0.45);
+            ctx.globalAlpha = 0.22;
+            ctx.fillStyle = decor;
+            ctx.fillRect(x, y, bw, bh * 0.4);
           }
         }
         ctx.globalAlpha = 1;
@@ -543,7 +568,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       }
 
       // ground / lanes
-      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillStyle = config.ground_color || "rgba(255,255,255,0.12)";
       ctx.fillRect(0, groundY + 16, W, H);
       if (useLanes) {
         ctx.strokeStyle = config.accent_color;
@@ -588,7 +613,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       }
 
       // perspective street
-      ctx.fillStyle = "rgba(40,44,52,0.85)";
+      ctx.fillStyle = config.ground_color || "rgba(40,44,52,0.85)";
       ctx.beginPath();
       ctx.moveTo(W * 0.42, H * 0.38);
       ctx.lineTo(W * 0.58, H * 0.38);

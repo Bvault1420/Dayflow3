@@ -1,6 +1,6 @@
+import { composeLook } from "./palette";
 import {
   DIFFICULTY_SPEED,
-  THEME_PALETTES,
   type Difficulty,
   type FxStyle,
   type GeneratedGameDraft,
@@ -39,17 +39,6 @@ function hash32(s: string): number {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
-}
-
-function mixHex(hex: string, salt: number): string {
-  const n = hex.replace("#", "");
-  if (n.length < 6) return hex;
-  const shift = (ch: number, amt: number) =>
-    Math.max(16, Math.min(230, ch + amt)).toString(16).padStart(2, "0");
-  const r = parseInt(n.slice(0, 2), 16);
-  const g = parseInt(n.slice(2, 4), 16);
-  const b = parseInt(n.slice(4, 6), 16);
-  return `#${shift(r, (salt % 51) - 25)}${shift(g, ((salt >> 5) % 51) - 25)}${shift(b, ((salt >> 10) % 51) - 25)}`;
 }
 
 function pickWorld(lower: string, theme: GameThemeId): WorldStyle {
@@ -388,6 +377,8 @@ export function buildPlayConfig(input: {
   accent_color?: string;
   bg_top?: string;
   bg_bottom?: string;
+  ground_color?: string;
+  decor_color?: string;
   instruction?: string;
   speed?: number;
   jump?: number;
@@ -402,8 +393,19 @@ export function buildPlayConfig(input: {
   const duration_seconds = input.duration_seconds ?? pickDuration(lower);
   const difficulty = input.difficulty ?? pickDifficulty(lower);
   const lanes = input.lanes ?? pickLanes(lower, genre);
-  const palette = THEME_PALETTES[theme];
   const world = input.world ?? pickWorld(lower, theme);
+  const look = composeLook({
+    prompt: idea,
+    world,
+    seed,
+    player: input.player_color,
+    obstacle: input.obstacle_color,
+    accent: input.accent_color,
+    bgTop: input.bg_top,
+    bgBottom: input.bg_bottom,
+    ground: input.ground_color,
+    decor: input.decor_color,
+  });
   const collectible = (input.collectible || guessNoun(lower, "loot")).slice(0, 18);
   const threat = (input.threat || guessNoun(lower, "hazard")).slice(0, 18);
 
@@ -417,8 +419,6 @@ export function buildPlayConfig(input: {
   }
 
   const title = (input.title || craftTitle(idea, genre)).slice(0, 48);
-  const hex = (v: string | undefined, base: string) =>
-    v && /^#[0-9a-fA-F]{6}$/.test(v) ? v : mixHex(base, seed);
 
   return {
     v: 1,
@@ -429,11 +429,13 @@ export function buildPlayConfig(input: {
     speed,
     jump,
     gravity: input.gravity ?? (genre === "flappy" ? 0.45 : 0.7),
-    player_color: hex(input.player_color, palette.player),
-    obstacle_color: hex(input.obstacle_color, palette.obstacle),
-    accent_color: hex(input.accent_color, palette.accent),
-    bg_top: hex(input.bg_top, palette.bgTop),
-    bg_bottom: hex(input.bg_bottom, palette.bgBottom),
+    player_color: look.player,
+    obstacle_color: look.obstacle,
+    accent_color: look.accent,
+    bg_top: look.bgTop,
+    bg_bottom: look.bgBottom,
+    ground_color: look.ground,
+    decor_color: look.decor,
     instruction:
       input.instruction?.slice(0, 72) || instructionFor(genre, lanes, collectible),
     difficulty,
