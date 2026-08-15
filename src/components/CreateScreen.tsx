@@ -110,11 +110,11 @@ export function CreateScreen({
 
   const preview = useMemo(() => {
     if (!play) return null;
-    return {
-      ...play,
+    const rebuilt = buildPlayConfig({
+      prompt: prompt.trim() || play.title,
       title: title.trim() || play.title,
-      duration_seconds: duration,
       theme,
+      duration_seconds: duration,
       genre,
       difficulty,
       obstacle_style: obstacleStyle,
@@ -124,6 +124,28 @@ export function CreateScreen({
       hud_style: hudStyle,
       lives,
       lanes: genre === "roam" ? 1 : lanes,
+      world: play.world,
+      collectible: play.collectible,
+      threat: play.threat,
+      goal: play.goal,
+      player_shape: play.player_shape,
+      player_color: play.player_color,
+      obstacle_color: play.obstacle_color,
+      accent_color: play.accent_color,
+      bg_top: play.bg_top,
+      bg_bottom: play.bg_bottom,
+      ground_color: play.ground_color,
+      decor_color: play.decor_color,
+      seed: play.seed,
+      // keep AI feel unless genre changed away from original
+      feel: genre === play.genre ? play.feel : undefined,
+      instruction: genre === play.genre ? play.instruction : undefined,
+      speed: genre === play.genre && difficulty === play.difficulty ? play.speed : undefined,
+      jump: genre === play.genre ? play.jump : undefined,
+      gravity: genre === play.genre ? play.gravity : undefined,
+    });
+    return {
+      ...rebuilt,
       player_image: playerImage,
       bg_image: bgImage,
       music_url: musicUrl,
@@ -132,6 +154,7 @@ export function CreateScreen({
     };
   }, [
     play,
+    prompt,
     title,
     theme,
     duration,
@@ -307,7 +330,7 @@ export function CreateScreen({
         }),
       });
       const draft = res.ok ? await res.json() : generateGameFromPrompt(idea);
-      if (!res.ok) {
+      if (!res.ok && durationTouched) {
         draft.duration_seconds = duration;
         if (draft.play) draft.play.duration_seconds = duration;
       }

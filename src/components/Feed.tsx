@@ -338,7 +338,7 @@ function FeedItem({
       <GameCanvas game={game} playing={active} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0e1621]/45 via-transparent to-[#0e1621]/80" />
 
-      <div className="absolute left-4 right-4 top-12 z-10 flex items-end justify-between">
+      <div className="pointer-events-none absolute left-4 right-4 top-12 z-10 flex items-end justify-between">
         <div>
           <p className="font-display text-2xl font-extrabold text-white">Kairos</p>
           <p className="text-xs font-medium text-white/70">Swipe the next moment</p>
@@ -348,9 +348,9 @@ function FeedItem({
         </div>
       </div>
 
-      <div className="absolute inset-x-3 bottom-24 z-10 space-y-3">
+      <div className="pointer-events-none absolute inset-x-3 bottom-24 z-10 space-y-3">
         {actionError && (
-          <p className="rounded-xl bg-red-500/90 px-3 py-2 text-xs font-medium text-white">
+          <p className="pointer-events-auto rounded-xl bg-red-500/90 px-3 py-2 text-xs font-medium text-white">
             {actionError}
           </p>
         )}

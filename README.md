@@ -7,7 +7,7 @@ Short playable moments — scroll bite-size games, remix with AI, publish in sec
 - **Feed** — vertical snap scroll of 10–60s experiences with likes, comments, saves, views
 - **Create** — prompt-first builder, remix grid, draft/publish
 - **Profile** — created / liked / saved / history, followers, level & coins
-- **Auth** — email + password and Google (via Supabase)
+- **Auth** — email + password (via Supabase)
 
 ## Setup
 
@@ -33,9 +33,7 @@ cp .env.example .env.local
 
 5. For easier local testing: Authentication → Providers → Email → turn **Confirm email** OFF (optional).
 
-6. Google login (optional): Authentication → Providers → Google → Enable, paste Google Client ID + Secret.  
-   In Google Cloud Console, set authorized redirect URI to:  
-   `https://<project-ref>.supabase.co/auth/v1/callback`
+6. Optional AI: set `GROQ_API_KEY` (or `OPENAI_API_KEY`) for Create → full unique game generation.
 
 7. Install & run:
 

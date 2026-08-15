@@ -150,9 +150,13 @@ function pickGenre(lower: string): GameGenre {
 
 function pickLanes(lower: string, genre: GameGenre): 1 | 3 {
   if (genre !== "runner") return 1;
-  if (/subway|temple\s*run|3[\s-]*lane|3[\s-]*spur|drei\s*spur|lane\s*switch|spur(en)?\s*wechseln/.test(lower))
+  if (
+    /subway|temple\s*run|3[\s-]*lanes?|3[\s-]*spur|drei\s*spur|\blanes?\b|spur(en)?\s*wechseln|lane\s*switch/.test(
+      lower
+    )
+  )
     return 3;
-  if (/surfer|lane|spur/.test(lower)) return 3;
+  if (/\bsurfer\b/.test(lower)) return 3;
   return 1;
 }
 
@@ -197,11 +201,12 @@ function pickFx(lower: string): FxStyle {
 
 export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMods {
   const feel: FeelMods = {};
-  if (/halten|hold|jetpack|schweben|drücken|druecken/.test(lower)) feel.hold_flap = true;
+  if (/\bhalten\b|\bhold\b|\bholding\b|jetpack|schweben|drücken|druecken/.test(lower))
+    feel.hold_flap = true;
   if (/doppelt|double[\s-]*jump|doppelsprung|zwei\s*sprünge|zwei\s*spruenge/.test(lower))
     feel.double_jump = true;
-  if (/\bdash\b|sprintstoß|sprintstoss|ausweichen\s*dash/.test(lower)) feel.dash = true;
-  if (/homing|verfolgen|folgt|lenkrakete|sucht/.test(lower)) feel.homing = true;
+  if (/\bdash\b|sprintstoß|sprintstoss/.test(lower)) feel.dash = true;
+  if (/homing|verfolgen|folgt|lenkrakete/.test(lower)) feel.homing = true;
   if (/magnet|anziehen|zieht\s*an/.test(lower)) feel.magnet = true;
   if (/wackel|moving\s*gap|lücke\s*beweg|luecke\s*beweg/.test(lower)) feel.moving_gaps = true;
   if (/bounce|hüpfen|huepfen|feder|trampoline/.test(lower)) feel.bounce = true;
@@ -209,7 +214,8 @@ export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMod
   if (/\btiny\b|mini|winzig|klein(er)?\s*spieler/.test(lower)) feel.tiny = true;
   if (/\bhuge\b|riesig|groß(er)?\s*spieler|grosser\s*spieler/.test(lower)) feel.huge = true;
   if (/schild|shield|rüstung|ruestung/.test(lower)) feel.shield = true;
-  if (/invert|umgekehrt|gravity\s*flip|schwerkraft/.test(lower)) feel.invert = true;
+  if (/invert|umgekehrt|gravity\s*flip|schwerkraft\s*(umkehr|flip|invert)/.test(lower))
+    feel.invert = true;
 
   if (Object.keys(feel).length > 0) return feel;
 
@@ -221,7 +227,7 @@ export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMod
     tap: ["tiny", "huge", "shield"],
     roam: ["dash", "magnet", "double_jump", "shield"],
   };
-  const pool = byGenre[genre];
+  const pool = byGenre[genre] ?? byGenre.runner;
   const a = seed % pool.length;
   const b = Math.floor(seed / 7) % pool.length;
   const k1 = pool[a];
@@ -444,10 +450,16 @@ export function buildPlayConfig(input: {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
   const lower = idea.toLowerCase();
   const seed = input.seed ?? hash32(idea.toLowerCase());
+  const GENRES: GameGenre[] = ["flappy", "runner", "dodge", "catch", "tap", "roam"];
+  const DIFFS: Difficulty[] = ["easy", "normal", "hard", "insane"];
   const theme = input.theme ?? pickTheme(lower);
-  const genre = input.genre ?? pickGenre(lower);
+  const genre = GENRES.includes(input.genre as GameGenre)
+    ? (input.genre as GameGenre)
+    : pickGenre(lower);
   const duration_seconds = input.duration_seconds ?? pickDuration(lower);
-  const difficulty = input.difficulty ?? pickDifficulty(lower);
+  const difficulty = DIFFS.includes(input.difficulty as Difficulty)
+    ? (input.difficulty as Difficulty)
+    : pickDifficulty(lower);
   const lanes = input.lanes ?? pickLanes(lower, genre);
   const world = input.world ?? pickWorld(lower, theme);
   const look = composeLook({
@@ -465,10 +477,12 @@ export function buildPlayConfig(input: {
   const collectible = (input.collectible || guessNoun(lower, "loot")).slice(0, 18);
   const threat = (input.threat || guessNoun(lower, "hazard")).slice(0, 18);
 
-  let speed = input.speed ?? DIFFICULTY_SPEED[difficulty];
+  let speed = input.speed ?? DIFFICULTY_SPEED[difficulty] ?? 1;
+  if (!Number.isFinite(speed) || speed <= 0) speed = 1;
   if (input.speed == null && /fast|schnell/.test(lower) && difficulty === "normal") speed = 1.2;
 
   let jump = input.jump ?? 1;
+  if (!Number.isFinite(jump) || jump <= 0) jump = 1;
   if (input.jump == null) {
     if (/high|floaty|hoch/.test(lower)) jump = 1.25;
     else if (/heavy|low|schwer/.test(lower)) jump = 0.85;
@@ -551,7 +565,8 @@ export function parsePlayConfig(raw: string | null | undefined): PlayConfig | nu
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as PlayConfig;
-    if (parsed?.v === 1 && parsed.genre) return parsed;
+    const ok: GameGenre[] = ["flappy", "runner", "dodge", "catch", "tap", "roam"];
+    if (parsed?.v === 1 && ok.includes(parsed.genre)) return parsed;
   } catch {
     /* not json */
   }
@@ -588,6 +603,19 @@ export function resolvePlayConfig(game: {
       ...stored,
       duration_seconds: game.duration_seconds || stored.duration_seconds,
       title: game.title || stored.title,
+      speed:
+        Number.isFinite(stored.speed) && (stored.speed as number) > 0
+          ? (stored.speed as number)
+          : defaults.speed,
+      jump:
+        Number.isFinite(stored.jump) && (stored.jump as number) > 0
+          ? (stored.jump as number)
+          : defaults.jump,
+      gravity:
+        Number.isFinite(stored.gravity) && (stored.gravity as number) > 0
+          ? (stored.gravity as number)
+          : defaults.gravity,
+      lanes: stored.genre === "runner" && stored.lanes === 3 ? 3 : stored.genre === "runner" ? stored.lanes || 1 : 1,
     };
   }
   return buildPlayConfig({

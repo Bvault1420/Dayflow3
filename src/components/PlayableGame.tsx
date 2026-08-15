@@ -204,13 +204,9 @@ export function PlayableGame({ config, playing, className }: Props) {
       const x = clientX - rect.left;
       const y = clientY - rect.top;
 
-      if (feel.invert && (config.genre === "flappy" || config.genre === "runner")) {
+      // Invert only on flappy flap taps (center), not lane/drag moves
+      if (feel.invert && config.genre === "flappy" && !feel.hold_flap) {
         gravSign *= -1;
-        if (sfxOn) kairosSfx.tap();
-      }
-      if (feel.dash && x > W * 0.72) {
-        dashT = 0.22;
-        if (sfxOn) kairosSfx.flap();
       }
 
       const canJump = playerY >= groundY - 2 || (feel.double_jump && airJumps < 2);
@@ -232,17 +228,33 @@ export function PlayableGame({ config, playing, className }: Props) {
         if (x < third) {
           lane = Math.max(0, lane - 1);
           if (sfxOn) kairosSfx.tap();
-        } else if (x > third * 2 && !feel.dash) {
+        } else if (x > third * 2) {
           lane = Math.min(2, lane + 1);
           if (sfxOn) kairosSfx.tap();
         } else {
-          doJump();
+          // center: jump, or dash when already in air
+          if (feel.dash && playerY < groundY - 8) {
+            dashT = 0.22;
+            if (sfxOn) kairosSfx.flap();
+          } else {
+            doJump();
+          }
         }
       } else if (config.genre === "runner") {
-        doJump();
+        if (feel.dash && x > W * 0.72) {
+          dashT = 0.22;
+          if (sfxOn) kairosSfx.flap();
+        } else {
+          doJump();
+        }
       } else if (config.genre === "roam") {
         if (x > W * 0.7 && y > H * 0.52) {
-          doJump(1.1);
+          if (feel.dash && playerY < groundY - 8) {
+            dashT = 0.22;
+            if (sfxOn) kairosSfx.flap();
+          } else {
+            doJump(1.1);
+          }
         } else {
           playerX = Math.max(36, Math.min(W - 36, x));
         }

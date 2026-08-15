@@ -189,12 +189,10 @@ function normalize(parsed: AiResult, prompt: string, userDuration: number | null
     ? (parsed.obstacle_style as ObstacleStyle)
     : local.play.obstacle_style;
   const fx = FX.includes(parsed.fx as FxStyle) ? (parsed.fx as FxStyle) : local.play.fx;
+  const rawLanes = Number(parsed.lanes);
+  const aiLanes: 1 | 3 | null = rawLanes === 3 ? 3 : rawLanes === 1 ? 1 : null;
   const lanes: 1 | 3 =
-    genre === "runner" && parsed.lanes === 3
-      ? 3
-      : genre === "runner" && parsed.lanes !== 1 && local.play.lanes === 3
-        ? 3
-        : 1;
+    genre !== "runner" ? 1 : aiLanes === 3 ? 3 : aiLanes === 1 ? 1 : local.play.lanes === 3 ? 3 : 1;
   const world = WORLDS.includes(parsed.world as WorldStyle)
     ? (parsed.world as WorldStyle)
     : local.play.world;
