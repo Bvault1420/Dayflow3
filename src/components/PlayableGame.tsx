@@ -16,8 +16,8 @@ type Obstacle = { x: number; y: number; w: number; h: number; scored?: boolean; 
 type Faller = { x: number; y: number; r: number; vy: number; bad: boolean };
 
 /**
- * Real short-form canvas games (flappy / runner / dodge / catch / tap).
- * Config comes from prompt generation and is stored on the game row.
+ * Real short-form canvas games (flappy / runner / dodge / catch / tap / roam).
+ * Each PlayConfig is unique (colors, world, collectibles) from the user's prompt.
  */
 export function PlayableGame({ config, playing, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -121,7 +121,7 @@ export function PlayableGame({ config, playing, className }: Props) {
 
     const resetRound = (keepScore = false) => {
       playerY = H * 0.45;
-      playerX = config.genre === "flappy" ? W * 0.28 : W * 0.22;
+      playerX = config.genre === "flappy" ? W * 0.28 : config.genre === "roam" ? W * 0.5 : W * 0.22;
       vy = 0;
       pipes = [];
       obstacles = [];
@@ -205,6 +205,15 @@ export function PlayableGame({ config, playing, className }: Props) {
           vy = jump * 1.15;
           if (sfxOn) kairosSfx.flap();
         }
+      } else if (config.genre === "roam") {
+        if (x > W * 0.7 && y > H * 0.52) {
+          if (playerY >= groundY - 2) {
+            vy = jump * 1.1;
+            if (sfxOn) kairosSfx.flap();
+          }
+        } else {
+          playerX = Math.max(36, Math.min(W - 36, x));
+        }
       } else if (config.genre === "dodge" || config.genre === "catch") {
         playerX = Math.max(28, Math.min(W - 28, x));
       } else if (config.genre === "tap") {
@@ -235,7 +244,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       onPointer(e.clientX, e.clientY);
     };
     const pointerMove = (e: PointerEvent) => {
-      if (!useDrag || !state.started || state.over || !playing) return;
+      if ((!useDrag && config.genre !== "roam") || !state.started || state.over || !playing) return;
       if (e.buttons === 0 && e.pointerType === "mouse") return;
       const rect = canvas.getBoundingClientRect();
       playerX = Math.max(28, Math.min(W - 28, e.clientX - rect.left));
@@ -261,13 +270,33 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.fillStyle = "rgba(8,14,28,0.35)";
         ctx.fillRect(0, 0, W, H);
       } else {
-        // floating decor
-        ctx.globalAlpha = 0.18;
+        const world = config.world || config.theme;
+        ctx.globalAlpha = 0.2;
         ctx.fillStyle = config.obstacle_color;
-        for (let i = 0; i < 5; i++) {
-          const x = ((i * 97 + runX * 0.2) % (W + 80)) - 40;
-          const y = (i * 73) % (H * 0.7);
-          ctx.fillRect(x, y, 18 + (i % 3) * 10, 70 + (i % 4) * 20);
+        const seed = config.seed || 1;
+        for (let i = 0; i < 7; i++) {
+          const x = ((i * 97 + runX * (world === "city" || config.genre === "roam" ? 0.55 : 0.2) + (seed % 40)) % (W + 90)) - 40;
+          const y = (i * 73 + (seed % 30)) % (H * 0.62);
+          const bw = 16 + ((seed + i * 13) % 4) * 10;
+          const bh = 50 + ((seed + i * 9) % 5) * 22;
+          if (world === "city" || config.genre === "roam") {
+            ctx.fillRect(x, H * 0.72 - bh, bw, bh);
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = config.accent_color;
+            ctx.fillRect(x + 4, H * 0.72 - bh + 8, 4, 6);
+            ctx.fillStyle = config.obstacle_color;
+            ctx.globalAlpha = 0.2;
+          } else if (world === "space") {
+            ctx.beginPath();
+            ctx.arc(x, y, 3 + (i % 3), 0, Math.PI * 2);
+            ctx.fill();
+          } else if (world === "ocean") {
+            ctx.beginPath();
+            ctx.ellipse(x, y, bw * 0.4, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillRect(x, y, bw, bh * 0.45);
+          }
         }
         ctx.globalAlpha = 1;
       }
@@ -337,14 +366,31 @@ export function PlayableGame({ config, playing, className }: Props) {
         return;
       }
       ctx.fillStyle = config.player_color;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
+      const shape = config.player_shape || "orb";
+      if (shape === "hero") {
+        roundRect(ctx, x - r * 0.55, y - r * 1.15, r * 1.1, r * 1.6, 6);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y - r * 1.25, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (shape === "car") {
+        roundRect(ctx, x - r * 1.1, y - r * 0.45, r * 2.2, r * 0.95, 5);
+        ctx.fill();
+        ctx.fillStyle = "#0e1621";
+        roundRect(ctx, x - r * 0.45, y - r * 0.35, r * 0.9, r * 0.4, 3);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.shadowBlur = 0;
-      ctx.fillStyle = "#0e1621";
-      ctx.beginPath();
-      ctx.arc(x + r * 0.25, y - r * 0.15, r * 0.18, 0, Math.PI * 2);
-      ctx.fill();
+      if (shape === "orb") {
+        ctx.fillStyle = "#0e1621";
+        ctx.beginPath();
+        ctx.arc(x + r * 0.25, y - r * 0.15, r * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
     };
 
     const drawHudOverlay = () => {
@@ -357,8 +403,9 @@ export function PlayableGame({ config, playing, className }: Props) {
 
       ctx.font = `700 12px system-ui, sans-serif`;
       ctx.globalAlpha = 0.85;
+      const loot = config.collectible ? ` · ${config.collectible}` : "";
       ctx.fillText(
-        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}`,
+        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}${loot}`,
         W / 2,
         H * 0.21
       );
@@ -533,6 +580,102 @@ export function PlayableGame({ config, playing, className }: Props) {
       drawPlayer(playerX, playerY, 16);
     };
 
+    const tickRoam = (dt: number) => {
+      groundY = H * 0.74;
+      if (!state.started) {
+        playerY = groundY;
+        playerX = W * 0.5;
+      }
+
+      // perspective street
+      ctx.fillStyle = "rgba(40,44,52,0.85)";
+      ctx.beginPath();
+      ctx.moveTo(W * 0.42, H * 0.38);
+      ctx.lineTo(W * 0.58, H * 0.38);
+      ctx.lineTo(W * 1.05, H);
+      ctx.lineTo(-W * 0.05, H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = config.accent_color;
+      ctx.globalAlpha = 0.35;
+      ctx.setLineDash([12, 16]);
+      ctx.beginPath();
+      ctx.moveTo(W * 0.5, H * 0.4);
+      ctx.lineTo(W * 0.5, H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      if (state.started) {
+        runX += speed * 80 * dt;
+        vy += gravity * 70 * dt;
+        playerY += vy * 60 * dt * 0.16;
+        if (playerY > groundY) {
+          playerY = groundY;
+          vy = 0;
+        }
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) {
+          const loot = Math.random() < 0.42;
+          obstacles.push({
+            x: W * (0.22 + Math.random() * 0.56) - 16,
+            y: -30,
+            w: loot ? 22 : 34,
+            h: loot ? 22 : 28,
+            lane: loot ? 1 : 0,
+          });
+          spawnTimer = 0.7 / config.speed;
+        }
+        for (const o of obstacles) {
+          o.y += speed * 210 * dt;
+          const p = Math.min(1, o.y / groundY);
+          o.w = (o.lane === 1 ? 16 : 24) + p * 18;
+          o.h = (o.lane === 1 ? 16 : 22) + p * 16;
+        }
+        obstacles = obstacles.filter((o) => o.y < H + 50);
+        for (const o of obstacles) {
+          const hit =
+            playerX + 14 > o.x &&
+            playerX - 14 < o.x + o.w &&
+            playerY + 16 > o.y &&
+            playerY - 8 < o.y + o.h;
+          const jumped = playerY < groundY - 26;
+          if (!hit) continue;
+          if (o.lane === 1) {
+            if (!o.scored) {
+              o.scored = true;
+              bumpScore(1);
+            }
+          } else if (!jumped) fail();
+        }
+        obstacles = obstacles.filter((o) => !(o.lane === 1 && o.scored));
+      }
+
+      for (const o of obstacles) {
+        if (o.lane === 1) {
+          ctx.fillStyle = config.player_color;
+          ctx.globalAlpha = 0.95;
+          roundRect(ctx, o.x, o.y, o.w, o.h, 4);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else {
+          drawObstacleShape(o.x, o.y, o.w, o.h);
+        }
+      }
+
+      // jump pad hint
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.beginPath();
+      ctx.arc(W * 0.86, H * 0.82, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = config.accent_color;
+      ctx.font = "800 11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("JUMP", W * 0.86, H * 0.82 + 4);
+
+      drawPlayer(playerX, playerY, 18);
+    };
+
     const tickDodge = (dt: number) => {
       playerY = H * 0.78;
       if (state.started) {
@@ -678,6 +821,9 @@ export function PlayableGame({ config, playing, className }: Props) {
             break;
           case "runner":
             tickRunner(dt);
+            break;
+          case "roam":
+            tickRoam(dt);
             break;
           case "dodge":
             tickDodge(dt);

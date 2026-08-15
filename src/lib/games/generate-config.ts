@@ -10,6 +10,9 @@ import {
   type ObstacleStyle,
   type PlayConfig,
   type ControlStyle,
+  type PlayerShape,
+  type WorldStyle,
+  type GameGoal,
 } from "./types";
 
 export {
@@ -24,7 +27,50 @@ export type {
   FxStyle,
   ControlStyle,
   HudStyle,
+  PlayerShape,
+  WorldStyle,
+  GameGoal,
 } from "./types";
+
+function hash32(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mixHex(hex: string, salt: number): string {
+  const n = hex.replace("#", "");
+  if (n.length < 6) return hex;
+  const shift = (ch: number, amt: number) =>
+    Math.max(16, Math.min(230, ch + amt)).toString(16).padStart(2, "0");
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return `#${shift(r, (salt % 51) - 25)}${shift(g, ((salt >> 5) % 51) - 25)}${shift(b, ((salt >> 10) % 51) - 25)}`;
+}
+
+function pickWorld(lower: string, theme: GameThemeId): WorldStyle {
+  if (/ocean|meer|underwater|pearl|jellyfish|wasser/.test(lower)) return "ocean";
+  if (/forest|jungle|wald|\btrees?\b|dschungel/.test(lower)) return "forest";
+  if (/temple|ruine|desert|wüste|wueste/.test(lower)) return "temple";
+  if (/space|weltall|galaxy|starfield|orbit/.test(lower)) return "space";
+  if (/candy|zucker|süß|suess/.test(lower)) return "candy";
+  if (/city|stadt|gta|street|crime|urban/.test(lower)) return "city";
+  if (theme === "city") return "city";
+  if (theme === "candy") return "candy";
+  if (theme === "monster") return "forest";
+  if (theme === "purple-pipes") return "space";
+  return "neon";
+}
+
+function pickShape(lower: string, genre: GameGenre): PlayerShape {
+  if (genre === "roam" || /mensch|person|character|held|hero|gta|crime/.test(lower)) return "hero";
+  if (/\b(drive|fahr|lenk|rennauto|sportwagen)\b/.test(lower)) return "car";
+  return "orb";
+}
 
 type Scored<T> = { value: T; score: number };
 
@@ -47,13 +93,16 @@ function pickTheme(lower: string): GameThemeId {
     )
   )
     return "city";
-  if (/neon|pipe|röhre|roehre|space|weltall|galaxy|purple/.test(lower)) return "purple-pipes";
+  if (/neon|pipe|röhre|roehre|space|weltall|galaxy|purple/.test(lower) && !/city|stadt|crime/.test(lower))
+    return "purple-pipes";
   if (/monster|pet|tier|creature|boss|battle|zombie|drache|dragon/.test(lower)) return "monster";
   return "neon";
 }
 
 function pickGenre(lower: string): GameGenre {
   // Famous-game → mechanics (never copy IP names into titles later)
+  if (/gta|open\s*world|3d\s*city|crime\s*sim|frei\s*lauf|herumlaufen|stadt\s*(erkunden|laufen)|third[\s-]*person/.test(lower))
+    return "roam";
   if (/subway\s*surf|temple\s*run|endless\s*runner|lane\s*runner|3[\s-]*spur|drei\s*spur|spur(en)?\s*wechseln/.test(lower))
     return "runner";
   if (/flappy\s*bird|jetpack\s*joyride/.test(lower)) return "flappy";
@@ -63,9 +112,14 @@ function pickGenre(lower: string): GameGenre {
   // Explicit flappy only when clearly asked — "bird" alone is not enough in DE/EN
   const explicit = scoreMatches(lower, [
     {
+      value: "roam",
+      words:
+        /\broam\b|erkunden|laufen\s*durch|open\s*world|3d\s*city|crime|stadt\s*sim|walking|joystick/gi,
+    },
+    {
       value: "flappy",
       words:
-        /\bflappy\b|flappy\s*bird|\bfliegen\b|\bflug\b|flügel|fluegel|hoch\s*und\s*runter|up\s*and\s*down|durch\s*(die\s*)?(röhren|roehren|pipes)/gi,
+        /\bflappy\b|flappy\s*bird|\bfliegen\b|\bflug\b|flügel|fluegel|hoch\s*und\s*runter|up\s*and\s*down|through\s+.*\bpipes\b|glowing\s+pipes|durch\s*(die\s*)?(röhren|roehren|pipes)/gi,
     },
     {
       value: "catch",
@@ -92,11 +146,11 @@ function pickGenre(lower: string): GameGenre {
 
   // Soft theme cues
   if (/kampf|fight|boss|battle/.test(lower)) return "tap";
-  if (/auto|car|city|stadt/.test(lower)) return "runner";
+  if (/auto|car|city|stadt|crime|gta/.test(lower)) return /gta|crime|3d|open/.test(lower) ? "roam" : "runner";
   if (/süß|suess|candy|bonbon/.test(lower)) return "catch";
 
   // Stable variety from prompt hash — never always flappy
-  const genres: GameGenre[] = ["runner", "dodge", "catch", "tap", "flappy"];
+  const genres: GameGenre[] = ["runner", "dodge", "catch", "tap", "flappy", "roam"];
   let hash = 0;
   for (let i = 0; i < lower.length; i++) hash = (hash * 31 + lower.charCodeAt(i)) >>> 0;
   return genres[hash % genres.length];
@@ -148,7 +202,7 @@ function pickFx(lower: string): FxStyle {
   return "glow";
 }
 
-function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1): string {
+function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1, collectible = "loot"): string {
   if (genre === "runner" && lanes === 3) {
     return "Tap left/right to change lanes · center to jump";
   }
@@ -160,9 +214,11 @@ function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1): string {
     case "dodge":
       return "Move left / right to dodge";
     case "catch":
-      return "Move & catch the good stuff";
+      return `Move & catch the ${collectible}`;
     case "tap":
       return "Tap the targets before they vanish";
+    case "roam":
+      return `Drag to walk · tap to jump · grab ${collectible}`;
   }
 }
 
@@ -233,6 +289,7 @@ export function craftTitle(prompt: string, genre: GameGenre): string {
 
   // Keyword → polished title (DE/EN)
   const specials: Array<[RegExp, GameGenre | "any", string]> = [
+    [/gta|crime|3d\s*city|stadt\s*sim/, "roam", "Night Block City"],
     [/subway|temple\s*run|lane\s*runner|3[\s-]*spur/, "runner", "City Lane Rush"],
     [/stern|star/, "catch", "Star Catcher"],
     [/meteor|asteroid/, "dodge", "Meteor Dodge"],
@@ -270,6 +327,7 @@ export function craftTitle(prompt: string, genre: GameGenre): string {
     dodge: "Dodge",
     catch: "Catch",
     tap: "Tap",
+    roam: "Streets",
   };
 
   if (noun) {
@@ -300,6 +358,7 @@ function craftDescription(prompt: string, genre: GameGenre, duration: number): s
     dodge: "Stay alive by sliding clear of danger.",
     catch: "Snag the good drops — skip the bad ones.",
     tap: "Hit targets before they vanish.",
+    roam: "Walk the streets, grab loot, dodge traffic.",
   };
   return `${hooks[genre]} ${duration}s run. Inspired by: ${idea.slice(0, 80)}`.slice(0, 180);
 }
@@ -319,24 +378,47 @@ export function buildPlayConfig(input: {
   lives?: number;
   lanes?: 1 | 3;
   description?: string;
+  world?: WorldStyle;
+  collectible?: string;
+  threat?: string;
+  goal?: GameGoal;
+  player_shape?: PlayerShape;
+  player_color?: string;
+  obstacle_color?: string;
+  accent_color?: string;
+  bg_top?: string;
+  bg_bottom?: string;
+  instruction?: string;
+  speed?: number;
+  jump?: number;
+  gravity?: number;
+  seed?: number;
 }): PlayConfig {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
   const lower = idea.toLowerCase();
+  const seed = input.seed ?? hash32(idea.toLowerCase());
   const theme = input.theme ?? pickTheme(lower);
   const genre = input.genre ?? pickGenre(lower);
   const duration_seconds = input.duration_seconds ?? pickDuration(lower);
   const difficulty = input.difficulty ?? pickDifficulty(lower);
   const lanes = input.lanes ?? pickLanes(lower, genre);
   const palette = THEME_PALETTES[theme];
+  const world = input.world ?? pickWorld(lower, theme);
+  const collectible = (input.collectible || guessNoun(lower, "loot")).slice(0, 18);
+  const threat = (input.threat || guessNoun(lower, "hazard")).slice(0, 18);
 
-  let speed = DIFFICULTY_SPEED[difficulty];
-  if (/fast|schnell/.test(lower) && difficulty === "normal") speed = 1.2;
+  let speed = input.speed ?? DIFFICULTY_SPEED[difficulty];
+  if (input.speed == null && /fast|schnell/.test(lower) && difficulty === "normal") speed = 1.2;
 
-  let jump = 1;
-  if (/high|floaty|hoch/.test(lower)) jump = 1.25;
-  else if (/heavy|low|schwer/.test(lower)) jump = 0.85;
+  let jump = input.jump ?? 1;
+  if (input.jump == null) {
+    if (/high|floaty|hoch/.test(lower)) jump = 1.25;
+    else if (/heavy|low|schwer/.test(lower)) jump = 0.85;
+  }
 
   const title = (input.title || craftTitle(idea, genre)).slice(0, 48);
+  const hex = (v: string | undefined, base: string) =>
+    v && /^#[0-9a-fA-F]{6}$/.test(v) ? v : mixHex(base, seed);
 
   return {
     v: 1,
@@ -346,24 +428,44 @@ export function buildPlayConfig(input: {
     duration_seconds,
     speed,
     jump,
-    gravity: genre === "flappy" ? 0.45 : 0.7,
-    player_color: palette.player,
-    obstacle_color: palette.obstacle,
-    accent_color: palette.accent,
-    bg_top: palette.bgTop,
-    bg_bottom: palette.bgBottom,
-    instruction: instructionFor(genre, lanes),
+    gravity: input.gravity ?? (genre === "flappy" ? 0.45 : 0.7),
+    player_color: hex(input.player_color, palette.player),
+    obstacle_color: hex(input.obstacle_color, palette.obstacle),
+    accent_color: hex(input.accent_color, palette.accent),
+    bg_top: hex(input.bg_top, palette.bgTop),
+    bg_bottom: hex(input.bg_bottom, palette.bgBottom),
+    instruction:
+      input.instruction?.slice(0, 72) || instructionFor(genre, lanes, collectible),
     difficulty,
     obstacle_style: input.obstacle_style ?? pickObstacleStyle(lower, genre),
     fx: input.fx ?? pickFx(lower),
     sfx: input.sfx ?? true,
     control:
       input.control ??
-      (lanes === 3 ? "tap" : genre === "dodge" || genre === "catch" ? "drag" : "tap"),
+      (genre === "roam" || genre === "dodge" || genre === "catch"
+        ? "drag"
+        : lanes === 3
+          ? "tap"
+          : "tap"),
     hud_style: input.hud_style ?? "bold",
     lives: input.lives ?? (difficulty === "easy" ? 3 : difficulty === "insane" ? 1 : 2),
-    lanes,
+    lanes: genre === "roam" ? 1 : lanes,
+    world,
+    collectible,
+    threat,
+    goal: input.goal ?? (genre === "catch" || genre === "roam" ? "collect" : "survive"),
+    player_shape: input.player_shape ?? pickShape(lower, genre),
+    seed,
   };
+}
+
+function guessNoun(lower: string, fallback: string): string {
+  if (/cash|geld|money|coin|münze/.test(lower)) return "cash";
+  if (/stern|star/.test(lower)) return "stars";
+  if (/candy|bonbon/.test(lower)) return "candy";
+  if (/pearl|perle/.test(lower)) return "pearls";
+  if (/gem|kristall/.test(lower)) return "gems";
+  return fallback;
 }
 
 /** Local prompt → full playable game draft (no API key required). */

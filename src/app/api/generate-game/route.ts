@@ -8,40 +8,54 @@ import {
   type GameThemeId,
   type ObstacleStyle,
 } from "@/lib/generate-game";
+import type { GameGoal, PlayerShape, WorldStyle } from "@/lib/games/types";
 
-const GENRES: GameGenre[] = ["flappy", "runner", "dodge", "catch", "tap"];
+const GENRES: GameGenre[] = ["flappy", "runner", "dodge", "catch", "tap", "roam"];
 const THEMES: GameThemeId[] = ["neon", "purple-pipes", "city", "candy", "monster"];
 const DIFFICULTIES: Difficulty[] = ["easy", "normal", "hard", "insane"];
 const OBSTACLES: ObstacleStyle[] = ["pipes", "blocks", "orbs", "spikes"];
 const FX: FxStyle[] = ["none", "trail", "glow", "shake"];
+const WORLDS: WorldStyle[] = ["city", "space", "candy", "neon", "forest", "temple", "ocean"];
+const SHAPES: PlayerShape[] = ["orb", "hero", "car"];
+const GOALS: GameGoal[] = ["survive", "collect", "score"];
 
-const SYSTEM = `You are the Kairos game designer. The user describes a short mobile game (10-60s). You return ONE complete playable config as JSON.
+const SYSTEM = `You are Kairos, an Aippy-style game builder. The user types ONE idea. You invent and return ONE complete UNIQUE short mobile game as JSON. Do not ask follow-up questions. Do not leave fields generic.
 
-Engine genres ONLY: flappy | runner | dodge | catch | tap
-- flappy = tap to flap through gaps (side view)
-- runner = endless run; set lanes=3 for subway/temple-style lane switching + jump; lanes=1 for simple jump runner
-- dodge = move left/right to avoid falling threats
+Map the FANTASY of the prompt onto the closest playable engine, then customize EVERYTHING so this game could not be confused with another:
+
+Engines:
+- roam = third-person street walker (GTA-like / 3D city / crime / open world). Drag to walk, tap jump, collect loot, dodge cars. Prefer this for city crime / 3D / walk-around ideas.
+- runner = endless run. lanes=3 for subway/temple lane-switch + jump; lanes=1 for side jump-runner
+- flappy = tap to flap through gaps
+- dodge = move to avoid falling threats
 - catch = catch good items, avoid bad
 - tap = tap targets before they vanish
 
-If the user says "like Subway Surfers / Temple Run / endless runner":
-→ genre=runner, lanes=3, theme=city (or neon), obstacle_style=blocks, control=tap
-Invent an ORIGINAL title (e.g. "City Lane Rush"). NEVER use trademark names (Subway Surfers, Temple Run, Mario, Flappy Bird, etc.) as the title.
+Invent an ORIGINAL title. NEVER use trademarks (Subway Surfers, Temple Run, GTA, Mario, Flappy Bird, Fortnite, Minecraft, etc.).
 
-Keys (JSON only):
-- title (max 42 chars, original, not the raw prompt)
-- description (max 180, explain the fantasy/controls)
+JSON keys (all required except duration_seconds):
+- title (max 42, punchy, original)
+- description (max 180, what you DO in THIS game)
 - theme: neon|purple-pipes|city|candy|monster
-- genre: flappy|runner|dodge|catch|tap
+- genre: roam|flappy|runner|dodge|catch|tap
+- world: city|space|candy|neon|forest|temple|ocean
 - lanes: 1 or 3
 - difficulty: easy|normal|hard|insane
 - obstacle_style: pipes|blocks|orbs|spikes
 - fx: none|trail|glow|shake
-- speed: 0.7-1.45
+- speed: 0.75-1.45
 - jump: 0.8-1.3
+- gravity: 0.35-1.0
 - lives: 1-5
-Do NOT set duration_seconds — the user chooses duration in the UI.
-Match German and English. Build the WHOLE game from the idea.`;
+- player_shape: orb|hero|car
+- goal: survive|collect|score
+- collectible: short noun (cash, stars, pearls…)
+- threat: short noun (cars, meteors, bombs…)
+- instruction: one line, max 64 chars, exact controls
+- player_color, obstacle_color, accent_color, bg_top, bg_bottom: unique #RRGGBB matching the vibe
+- duration_seconds: 10-60 only if the prompt states a length; else omit
+
+German and English. Build the WHOLE unique game from the idea. Two different prompts must never share the same title+colors+instruction.`;
 
 type AiResult = {
   title: string;
@@ -54,11 +68,31 @@ type AiResult = {
   fx?: FxStyle;
   speed?: number;
   jump?: number;
+  gravity?: number;
   lives?: number;
+  world?: WorldStyle;
+  collectible?: string;
+  threat?: string;
+  goal?: GameGoal;
+  player_shape?: PlayerShape;
+  instruction?: string;
+  player_color?: string;
+  obstacle_color?: string;
+  accent_color?: string;
+  bg_top?: string;
+  bg_bottom?: string;
+  duration_seconds?: number;
 };
 
 const BANNED_TITLE =
-  /\b(subway\s*surfers?|temple\s*run|flappy\s*bird|mario|sonic|pokemon|fortnite|minecraft|disney|nintendo)\b/i;
+  /\b(subway\s*surfers?|temple\s*run|flappy\s*bird|gta|grand theft|mario|sonic|pokemon|fortnite|minecraft|disney|nintendo)\b/i;
+
+function hex(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const m = v.trim().match(/^#?[0-9a-fA-F]{6}$/);
+  if (!m) return undefined;
+  return v.startsWith("#") ? v : `#${v}`;
+}
 
 async function callChat(opts: {
   url: string;
@@ -74,13 +108,13 @@ async function callChat(opts: {
     },
     body: JSON.stringify({
       model: opts.model,
-      temperature: 0.5,
+      temperature: 0.85,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM },
         {
           role: "user",
-          content: `Build the full game config for this idea:\n${opts.prompt}`,
+          content: `Build a complete UNIQUE playable game from this idea. Fill every JSON key. Idea:\n${opts.prompt}`,
         },
       ],
     }),
@@ -95,17 +129,15 @@ async function callChat(opts: {
   return JSON.parse(raw) as AiResult;
 }
 
-function normalize(
-  parsed: AiResult,
-  prompt: string,
-  userDuration: number | null
-) {
+function normalize(parsed: AiResult, prompt: string, userDuration: number | null) {
   const local = generateGameFromPrompt(prompt);
   const theme = THEMES.includes(parsed.theme) ? parsed.theme : local.theme;
   const genre = GENRES.includes(parsed.genre) ? parsed.genre : local.play.genre;
-  const duration_seconds = userDuration
-    ? Math.min(60, Math.max(10, userDuration))
-    : local.duration_seconds;
+  const aiDur =
+    typeof parsed.duration_seconds === "number" && Number.isFinite(parsed.duration_seconds)
+      ? Math.min(60, Math.max(10, Math.round(parsed.duration_seconds)))
+      : null;
+  const duration_seconds = userDuration ?? aiDur ?? local.duration_seconds;
   const difficulty = DIFFICULTIES.includes(parsed.difficulty as Difficulty)
     ? (parsed.difficulty as Difficulty)
     : local.play.difficulty;
@@ -113,13 +145,22 @@ function normalize(
     ? (parsed.obstacle_style as ObstacleStyle)
     : local.play.obstacle_style;
   const fx = FX.includes(parsed.fx as FxStyle) ? (parsed.fx as FxStyle) : local.play.fx;
-  const lanes: 1 | 3 = parsed.lanes === 3 || local.play.lanes === 3 ? 3 : 1;
+  const lanes: 1 | 3 = genre === "roam" ? 1 : parsed.lanes === 3 || local.play.lanes === 3 ? 3 : 1;
+  const world = WORLDS.includes(parsed.world as WorldStyle)
+    ? (parsed.world as WorldStyle)
+    : local.play.world;
+  const player_shape = SHAPES.includes(parsed.player_shape as PlayerShape)
+    ? (parsed.player_shape as PlayerShape)
+    : local.play.player_shape;
+  const goal = GOALS.includes(parsed.goal as GameGoal)
+    ? (parsed.goal as GameGoal)
+    : local.play.goal;
 
   let title = String(parsed.title || local.title).trim().slice(0, 48);
   if (!title || BANNED_TITLE.test(title) || title.toLowerCase() === prompt.toLowerCase().slice(0, title.length)) {
     title = local.title;
   }
-  if (BANNED_TITLE.test(title)) title = lanes === 3 ? "City Lane Rush" : local.title;
+  if (BANNED_TITLE.test(title)) title = genre === "roam" ? "Night Block City" : local.title;
 
   const play = buildPlayConfig({
     prompt,
@@ -132,19 +173,30 @@ function normalize(
     fx,
     lanes,
     lives: Math.min(5, Math.max(1, Number(parsed.lives) || local.play.lives || 2)),
+    world,
+    collectible: String(parsed.collectible || local.play.collectible || "loot").slice(0, 18),
+    threat: String(parsed.threat || local.play.threat || "hazard").slice(0, 18),
+    goal,
+    player_shape,
+    player_color: hex(parsed.player_color),
+    obstacle_color: hex(parsed.obstacle_color),
+    accent_color: hex(parsed.accent_color),
+    bg_top: hex(parsed.bg_top),
+    bg_bottom: hex(parsed.bg_bottom),
+    instruction: parsed.instruction,
+    speed: Number(parsed.speed) || undefined,
+    jump: Number(parsed.jump) || undefined,
+    gravity: Number(parsed.gravity) || undefined,
   });
-  play.speed = Math.min(1.45, Math.max(0.7, Number(parsed.speed) || play.speed));
-  play.jump = Math.min(1.3, Math.max(0.8, Number(parsed.jump) || play.jump));
-  play.lanes = lanes;
-  play.instruction =
-    genre === "runner" && lanes === 3
-      ? "Tap left/right to change lanes · center to jump"
-      : play.instruction;
+
+  if (genre === "runner" && lanes === 3 && !parsed.instruction) {
+    play.instruction = "Tap left/right to change lanes · center to jump";
+  }
 
   return {
     title: play.title,
     description: String(parsed.description || local.description)
-      .replace(BANNED_TITLE, "arcade runner")
+      .replace(BANNED_TITLE, "arcade game")
       .slice(0, 180),
     theme: play.theme,
     duration_seconds: play.duration_seconds,
@@ -155,7 +207,7 @@ function normalize(
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     prompt?: string;
-    duration_seconds?: number;
+    duration_seconds?: number | null;
   } | null;
   const prompt = body?.prompt?.trim() || "";
   if (!prompt) {

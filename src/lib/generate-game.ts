@@ -18,4 +18,7 @@ export type {
   FxStyle,
   ControlStyle,
   HudStyle,
+  PlayerShape,
+  WorldStyle,
+  GameGoal,
 } from "./games/types";

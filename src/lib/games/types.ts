@@ -1,4 +1,4 @@
-export type GameGenre = "flappy" | "runner" | "dodge" | "catch" | "tap";
+export type GameGenre = "flappy" | "runner" | "dodge" | "catch" | "tap" | "roam";
 
 export type GameThemeId = "neon" | "purple-pipes" | "city" | "candy" | "monster";
 
@@ -7,6 +7,9 @@ export type ObstacleStyle = "pipes" | "blocks" | "orbs" | "spikes";
 export type FxStyle = "none" | "trail" | "glow" | "shake";
 export type ControlStyle = "tap" | "drag";
 export type HudStyle = "bold" | "minimal";
+export type PlayerShape = "orb" | "hero" | "car";
+export type WorldStyle = "city" | "space" | "candy" | "neon" | "forest" | "temple" | "ocean";
+export type GameGoal = "survive" | "collect" | "score";
 
 export type PlayConfig = {
   v: 1;
@@ -42,6 +45,13 @@ export type PlayConfig = {
   lives?: number;
   /** 3 = subway-style lane runner (swipe/tap between lanes) */
   lanes?: 1 | 3;
+  /** Prompt-unique extras so two runners don't look identical */
+  world?: WorldStyle;
+  collectible?: string;
+  threat?: string;
+  goal?: GameGoal;
+  player_shape?: PlayerShape;
+  seed?: number;
 };
 
 export type GeneratedGameDraft = {
@@ -102,14 +112,14 @@ export const DIFFICULTY_SPEED: Record<Difficulty, number> = {
 
 /** Safe prompt starters — original Kairos ideas, no third-party IP. */
 export const IDEA_STARTERS = [
-  "Baue ein 3-Spur Stadt-Runner wie ein Subway-Style Spiel — Spuren wechseln und springen",
-  "Neon flappy through glowing pipes",
-  "City sprint jump over crates",
+  "3D city crime night — walk the streets, grab cash, dodge cars",
+  "Baue ein 3-Spur Stadt-Runner — Spuren wechseln und springen",
+  "Neon bird through glowing pipes",
   "Catch falling candy, dodge bombs",
   "Tap blinking orbs before they vanish",
   "Dodge meteors in a tunnel for 20s",
-  "Monster mash — smash green targets",
-  "Temple-style lane runner with traps",
+  "Monster smash — hit green targets",
+  "Ocean dive: collect pearls, avoid jellyfish",
 ];
 
 export const REFINE_CHIPS = [
