@@ -905,7 +905,7 @@ export function CreateScreen({
           <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
             <div className="relative h-64 w-full">
               <PlayableGame
-                key={`${preview.genre}-${preview.theme}-${preview.seed}-${preview.player_color}-${preview.world}-${preview.difficulty}-${preview.obstacle_style}-${preview.fx}-${preview.lanes}-${preview.player_image}-${preview.bg_image}-${preview.music_url}-${preview.obstacle_image}`}
+                key={`${preview.genre}-${preview.theme}-${preview.seed}-${preview.player_color}-${preview.world}-${JSON.stringify(preview.feel)}-${preview.lanes}-${preview.player_image}-${preview.bg_image}`}
                 config={preview}
                 playing
               />
@@ -915,6 +915,12 @@ export function CreateScreen({
               {preview.world ? ` · ${preview.world}` : ""}
               {preview.lanes === 3 ? " · 3 lanes" : ""}
               {preview.collectible ? ` · ${preview.collectible}` : ""}
+              {preview.feel
+                ? ` · ${Object.keys(preview.feel)
+                    .filter((k) => preview.feel?.[k as keyof typeof preview.feel])
+                    .slice(0, 3)
+                    .join(" · ")}`
+                : ""}
             </p>
           </div>
         )}

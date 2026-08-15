@@ -5,7 +5,23 @@ export type GameThemeId = "neon" | "purple-pipes" | "city" | "candy" | "monster"
 export type Difficulty = "easy" | "normal" | "hard" | "insane";
 export type ObstacleStyle = "pipes" | "blocks" | "orbs" | "spikes";
 export type FxStyle = "none" | "trail" | "glow" | "shake";
-export type ControlStyle = "tap" | "drag";
+export type ControlStyle = "tap" | "drag" | "hold";
+
+/** Per-game rules so two runners/flappies don't play the same. */
+export type FeelMods = {
+  hold_flap?: boolean;
+  double_jump?: boolean;
+  dash?: boolean;
+  homing?: boolean;
+  magnet?: boolean;
+  moving_gaps?: boolean;
+  bounce?: boolean;
+  sides?: boolean;
+  tiny?: boolean;
+  huge?: boolean;
+  shield?: boolean;
+  invert?: boolean;
+};
 export type HudStyle = "bold" | "minimal";
 export type PlayerShape = "orb" | "hero" | "car";
 export type WorldStyle = "city" | "space" | "candy" | "neon" | "forest" | "temple" | "ocean";
@@ -54,6 +70,7 @@ export type PlayConfig = {
   seed?: number;
   ground_color?: string;
   decor_color?: string;
+  feel?: FeelMods;
 };
 
 export type GeneratedGameDraft = {

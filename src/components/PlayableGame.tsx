@@ -11,9 +11,9 @@ type Props = {
 };
 
 type Target = { x: number; y: number; r: number; life: number; max: number; bad?: boolean };
-type Pipe = { x: number; gapY: number; gapH: number; scored?: boolean };
+type Pipe = { x: number; gapY: number; gapH: number; scored?: boolean; osc?: number };
 type Obstacle = { x: number; y: number; w: number; h: number; scored?: boolean; lane?: number };
-type Faller = { x: number; y: number; r: number; vy: number; bad: boolean };
+type Faller = { x: number; y: number; r: number; vy: number; vx?: number; bad: boolean };
 
 /**
  * Real short-form canvas games (flappy / runner / dodge / catch / tap / roam).
@@ -48,6 +48,13 @@ export function PlayableGame({ config, playing, className }: Props) {
     const sfxOn = config.sfx !== false;
     const hudMinimal = config.hud_style === "minimal";
     const useDrag = config.control === "drag";
+    const feel = config.feel || {};
+    const playerR = feel.tiny ? 11 : feel.huge ? 24 : 17;
+    let holding = false;
+    let airJumps = 0;
+    let dashT = 0;
+    let shieldOn = !!feel.shield;
+    let gravSign = 1;
 
     const resize = () => {
       const parent = canvas.parentElement;
@@ -138,6 +145,11 @@ export function PlayableGame({ config, playing, className }: Props) {
         state.lives = config.lives ?? 2;
         runX = 0;
         trails.length = 0;
+        airJumps = 0;
+        dashT = 0;
+        shieldOn = !!feel.shield;
+        gravSign = 1;
+        holding = false;
       }
     };
 
@@ -149,6 +161,13 @@ export function PlayableGame({ config, playing, className }: Props) {
     };
 
     const fail = () => {
+      if (dashT > 0) return;
+      if (shieldOn) {
+        shieldOn = false;
+        flash = 0.4;
+        if (sfxOn) kairosSfx.tap();
+        return;
+      }
       flash = 0.35;
       shake = fx === "shake" || fx === "glow" ? 10 : 6;
       if (sfxOn) kairosSfx.fail();
@@ -185,32 +204,45 @@ export function PlayableGame({ config, playing, className }: Props) {
       const x = clientX - rect.left;
       const y = clientY - rect.top;
 
-      if (config.genre === "flappy") {
-        vy = jump;
+      if (feel.invert && (config.genre === "flappy" || config.genre === "runner")) {
+        gravSign *= -1;
+        if (sfxOn) kairosSfx.tap();
+      }
+      if (feel.dash && x > W * 0.72) {
+        dashT = 0.22;
         if (sfxOn) kairosSfx.flap();
+      }
+
+      const canJump = playerY >= groundY - 2 || (feel.double_jump && airJumps < 2);
+      const doJump = (mult = 1.15) => {
+        if (!canJump && config.genre !== "flappy") return;
+        if (playerY < groundY - 2) airJumps += 1;
+        else airJumps = 1;
+        vy = jump * mult * gravSign;
+        if (sfxOn) kairosSfx.flap();
+      };
+
+      if (config.genre === "flappy") {
+        if (!feel.hold_flap) {
+          vy = jump * gravSign;
+          if (sfxOn) kairosSfx.flap();
+        }
       } else if (config.genre === "runner" && (config.lanes || 1) === 3) {
         const third = W / 3;
         if (x < third) {
           lane = Math.max(0, lane - 1);
           if (sfxOn) kairosSfx.tap();
-        } else if (x > third * 2) {
+        } else if (x > third * 2 && !feel.dash) {
           lane = Math.min(2, lane + 1);
           if (sfxOn) kairosSfx.tap();
-        } else if (playerY >= groundY - 2) {
-          vy = jump * 1.15;
-          if (sfxOn) kairosSfx.flap();
+        } else {
+          doJump();
         }
       } else if (config.genre === "runner") {
-        if (playerY >= groundY - 2) {
-          vy = jump * 1.15;
-          if (sfxOn) kairosSfx.flap();
-        }
+        doJump();
       } else if (config.genre === "roam") {
         if (x > W * 0.7 && y > H * 0.52) {
-          if (playerY >= groundY - 2) {
-            vy = jump * 1.1;
-            if (sfxOn) kairosSfx.flap();
-          }
+          doJump(1.1);
         } else {
           playerX = Math.max(36, Math.min(W - 36, x));
         }
@@ -241,7 +273,11 @@ export function PlayableGame({ config, playing, className }: Props) {
     };
 
     const pointerDown = (e: PointerEvent) => {
+      holding = true;
       onPointer(e.clientX, e.clientY);
+    };
+    const pointerUp = () => {
+      holding = false;
     };
     const pointerMove = (e: PointerEvent) => {
       if ((!useDrag && config.genre !== "roam") || !state.started || state.over || !playing) return;
@@ -250,6 +286,8 @@ export function PlayableGame({ config, playing, className }: Props) {
       playerX = Math.max(28, Math.min(W - 28, e.clientX - rect.left));
     };
     canvas.addEventListener("pointerdown", pointerDown);
+    canvas.addEventListener("pointerup", pointerUp);
+    canvas.addEventListener("pointercancel", pointerUp);
     canvas.addEventListener("pointermove", pointerMove);
 
     const drawBackground = () => {
@@ -429,8 +467,9 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.font = `700 12px system-ui, sans-serif`;
       ctx.globalAlpha = 0.85;
       const loot = config.collectible ? ` · ${config.collectible}` : "";
+      const extra = shieldOn ? " · shield" : dashT > 0 ? " · dash" : "";
       ctx.fillText(
-        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}${loot}`,
+        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}${loot}${extra}`,
         W / 2,
         H * 0.21
       );
@@ -458,7 +497,8 @@ export function PlayableGame({ config, playing, className }: Props) {
 
     const tickFlappy = (dt: number) => {
       if (state.started) {
-        vy += gravity * 60 * dt;
+        if (feel.hold_flap && holding) vy = jump * 0.62 * gravSign;
+        vy += gravity * 60 * dt * gravSign;
         playerY += vy * 60 * dt * 0.16;
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
@@ -466,10 +506,17 @@ export function PlayableGame({ config, playing, className }: Props) {
             x: W + 20,
             gapY: H * (0.28 + Math.random() * 0.4),
             gapH: H * (0.22 / config.speed),
+            osc: Math.random() * Math.PI * 2,
           });
           spawnTimer = 1.35 / config.speed;
         }
-        for (const p of pipes) p.x -= speed * 60 * dt;
+        for (const p of pipes) {
+          p.x -= speed * 60 * dt * (dashT > 0 ? 1.45 : 1);
+          if (feel.moving_gaps) {
+            p.osc = (p.osc || 0) + dt * 2.2;
+            p.gapY = clamp(p.gapY + Math.sin(p.osc) * 28 * dt, H * 0.22, H * 0.72);
+          }
+        }
         pipes = pipes.filter((p) => p.x > -60);
         for (const p of pipes) {
           const inX = playerX > p.x - 18 && playerX < p.x + 44;
@@ -495,7 +542,7 @@ export function PlayableGame({ config, playing, className }: Props) {
           drawObstacleShape(p.x, botY, 44, 36);
         }
       }
-      drawPlayer(playerX, playerY, 17);
+      drawPlayer(playerX, playerY, playerR);
     };
 
     const tickRunner = (dt: number) => {
@@ -509,12 +556,13 @@ export function PlayableGame({ config, playing, className }: Props) {
       }
 
       if (state.started) {
-        runX += speed * 60 * dt;
-        vy += gravity * 70 * dt;
+        runX += speed * 60 * dt * (dashT > 0 ? 1.5 : 1);
+        vy += gravity * 70 * dt * gravSign;
         playerY += vy * 60 * dt * 0.16;
         if (playerY > groundY) {
           playerY = groundY;
-          vy = 0;
+          airJumps = 0;
+          vy = feel.bounce ? jump * 0.45 * gravSign : 0;
         }
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
@@ -602,7 +650,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       for (const o of obstacles) {
         drawObstacleShape(o.x, o.y, o.w, o.h);
       }
-      drawPlayer(playerX, playerY, 16);
+      drawPlayer(playerX, playerY, playerR);
     };
 
     const tickRoam = (dt: number) => {
@@ -632,12 +680,13 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.globalAlpha = 1;
 
       if (state.started) {
-        runX += speed * 80 * dt;
+        runX += speed * 80 * dt * (dashT > 0 ? 1.4 : 1);
         vy += gravity * 70 * dt;
         playerY += vy * 60 * dt * 0.16;
         if (playerY > groundY) {
           playerY = groundY;
-          vy = 0;
+          airJumps = 0;
+          vy = feel.bounce ? jump * 0.4 : 0;
         }
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
@@ -653,6 +702,12 @@ export function PlayableGame({ config, playing, className }: Props) {
         }
         for (const o of obstacles) {
           o.y += speed * 210 * dt;
+          if (feel.magnet && o.lane === 1) {
+            o.x += (playerX - (o.x + o.w / 2)) * 2.2 * dt;
+          }
+          if (feel.homing && o.lane !== 1) {
+            o.x += (playerX - (o.x + o.w / 2)) * 1.1 * dt;
+          }
           const p = Math.min(1, o.y / groundY);
           o.w = (o.lane === 1 ? 16 : 24) + p * 18;
           o.h = (o.lane === 1 ? 16 : 22) + p * 16;
@@ -698,7 +753,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.textAlign = "center";
       ctx.fillText("JUMP", W * 0.86, H * 0.82 + 4);
 
-      drawPlayer(playerX, playerY, 18);
+      drawPlayer(playerX, playerY, playerR);
     };
 
     const tickDodge = (dt: number) => {
@@ -706,16 +761,22 @@ export function PlayableGame({ config, playing, className }: Props) {
       if (state.started) {
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
+          const fromSide = feel.sides && Math.random() < 0.45;
           fallers.push({
-            x: 40 + Math.random() * (W - 80),
-            y: -20,
+            x: fromSide ? (Math.random() < 0.5 ? -20 : W + 20) : 40 + Math.random() * (W - 80),
+            y: fromSide ? 80 + Math.random() * (H * 0.5) : -20,
             r: 14 + Math.random() * 10,
-            vy: (180 + Math.random() * 140) * config.speed,
+            vy: fromSide ? (40 + Math.random() * 40) * config.speed : (180 + Math.random() * 140) * config.speed,
+            vx: fromSide ? (Math.random() < 0.5 ? 160 : -160) * config.speed : 0,
             bad: true,
           });
           spawnTimer = 0.55 / config.speed;
         }
-        for (const f of fallers) f.y += f.vy * dt;
+        for (const f of fallers) {
+          f.y += f.vy * dt;
+          f.x += (f.vx || 0) * dt;
+          if (feel.homing) f.x += (playerX - f.x) * 1.4 * dt;
+        }
         for (const f of fallers) {
           const dx = f.x - playerX;
           const dy = f.y - playerY;
@@ -731,7 +792,7 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
         ctx.fill();
       }
-      drawPlayer(playerX, playerY, 18);
+      drawPlayer(playerX, playerY, playerR);
     };
 
     const tickCatch = (dt: number) => {
@@ -740,16 +801,26 @@ export function PlayableGame({ config, playing, className }: Props) {
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
           const bad = Math.random() < 0.28;
+          const fromSide = feel.sides && Math.random() < 0.35;
           fallers.push({
-            x: 36 + Math.random() * (W - 72),
-            y: -24,
+            x: fromSide ? (Math.random() < 0.5 ? -16 : W + 16) : 36 + Math.random() * (W - 72),
+            y: fromSide ? 60 + Math.random() * (H * 0.4) : -24,
             r: 12 + Math.random() * 8,
             vy: (160 + Math.random() * 120) * config.speed,
+            vx: fromSide ? (Math.random() < 0.5 ? 140 : -140) * config.speed : 0,
             bad,
           });
           spawnTimer = 0.7 / config.speed;
         }
-        for (const f of fallers) f.y += f.vy * dt;
+        for (const f of fallers) {
+          f.y += f.vy * dt;
+          f.x += (f.vx || 0) * dt;
+          if (feel.magnet && !f.bad) {
+            f.x += (playerX - f.x) * 2.4 * dt;
+            f.y += (playerY - f.y) * 0.6 * dt;
+          }
+          if (feel.homing && f.bad) f.x += (playerX - f.x) * 1.2 * dt;
+        }
         const remain: Faller[] = [];
         for (const f of fallers) {
           const dx = f.x - playerX;
@@ -821,6 +892,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       const dt = Math.min(0.033, (now - last) / 1000);
       last = now;
 
+      if (dashT > 0) dashT = Math.max(0, dashT - dt);
       if (playing && state.started && !state.over) {
         state.timeLeft -= dt;
         if (state.timeLeft <= 0) {
@@ -882,6 +954,8 @@ export function PlayableGame({ config, playing, className }: Props) {
       alive = false;
       cancelAnimationFrame(raf);
       canvas.removeEventListener("pointerdown", pointerDown);
+      canvas.removeEventListener("pointerup", pointerUp);
+      canvas.removeEventListener("pointercancel", pointerUp);
       canvas.removeEventListener("pointermove", pointerMove);
       ro.disconnect();
       if (audio) {
@@ -902,6 +976,10 @@ export function PlayableGame({ config, playing, className }: Props) {
       />
     </div>
   );
+}
+
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n));
 }
 
 function roundRect(

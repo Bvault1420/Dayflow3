@@ -13,6 +13,7 @@ import {
   type PlayerShape,
   type WorldStyle,
   type GameGoal,
+  type FeelMods,
 } from "./types";
 
 export {
@@ -30,6 +31,7 @@ export type {
   PlayerShape,
   WorldStyle,
   GameGoal,
+  FeelMods,
 } from "./types";
 
 function hash32(s: string): number {
@@ -189,6 +191,53 @@ function pickFx(lower: string): FxStyle {
   if (/trail|spur|motion/.test(lower)) return "trail";
   if (/glow|neon|leuchten/.test(lower)) return "glow";
   return "glow";
+}
+
+export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMods {
+  const feel: FeelMods = {};
+  if (/halten|hold|jetpack|schweben|drücken|druecken/.test(lower)) feel.hold_flap = true;
+  if (/doppelt|double[\s-]*jump|doppelsprung|zwei\s*sprünge|zwei\s*spruenge/.test(lower))
+    feel.double_jump = true;
+  if (/\bdash\b|sprintstoß|sprintstoss|ausweichen\s*dash/.test(lower)) feel.dash = true;
+  if (/homing|verfolgen|folgt|lenkrakete|sucht/.test(lower)) feel.homing = true;
+  if (/magnet|anziehen|zieht\s*an/.test(lower)) feel.magnet = true;
+  if (/wackel|moving\s*gap|lücke\s*beweg|luecke\s*beweg/.test(lower)) feel.moving_gaps = true;
+  if (/bounce|hüpfen|huepfen|feder|trampoline/.test(lower)) feel.bounce = true;
+  if (/von\s*der\s*seite|from\s*the\s*side|seitlich/.test(lower)) feel.sides = true;
+  if (/\btiny\b|mini|winzig|klein(er)?\s*spieler/.test(lower)) feel.tiny = true;
+  if (/\bhuge\b|riesig|groß(er)?\s*spieler|grosser\s*spieler/.test(lower)) feel.huge = true;
+  if (/schild|shield|rüstung|ruestung/.test(lower)) feel.shield = true;
+  if (/invert|umgekehrt|gravity\s*flip|schwerkraft/.test(lower)) feel.invert = true;
+
+  if (Object.keys(feel).length > 0) return feel;
+
+  const byGenre: Record<GameGenre, (keyof FeelMods)[]> = {
+    flappy: ["hold_flap", "moving_gaps", "bounce", "invert"],
+    runner: ["double_jump", "dash", "bounce", "tiny"],
+    dodge: ["homing", "sides", "tiny", "shield"],
+    catch: ["magnet", "sides", "huge", "shield"],
+    tap: ["tiny", "huge", "shield"],
+    roam: ["dash", "magnet", "double_jump", "shield"],
+  };
+  const pool = byGenre[genre];
+  feel[pool[seed % pool.length]] = true;
+  feel[pool[(seed >> 3) % pool.length]] = true;
+  return feel;
+}
+
+function feelHint(feel: FeelMods): string {
+  const bits: string[] = [];
+  if (feel.hold_flap) bits.push("hold to fly");
+  if (feel.double_jump) bits.push("double jump");
+  if (feel.dash) bits.push("dash");
+  if (feel.homing) bits.push("threats chase");
+  if (feel.magnet) bits.push("magnet loot");
+  if (feel.moving_gaps) bits.push("moving gaps");
+  if (feel.bounce) bits.push("bounce");
+  if (feel.sides) bits.push("from the sides");
+  if (feel.invert) bits.push("tap flips gravity");
+  if (feel.shield) bits.push("1 shield");
+  return bits.length ? ` · ${bits.slice(0, 2).join(" · ")}` : "";
 }
 
 function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1, collectible = "loot"): string {
@@ -384,6 +433,7 @@ export function buildPlayConfig(input: {
   jump?: number;
   gravity?: number;
   seed?: number;
+  feel?: FeelMods;
 }): PlayConfig {
   const idea = input.prompt.trim().replace(/\s+/g, " ");
   const lower = idea.toLowerCase();
@@ -419,6 +469,8 @@ export function buildPlayConfig(input: {
   }
 
   const title = (input.title || craftTitle(idea, genre)).slice(0, 48);
+  const feel = input.feel ?? pickFeel(lower, genre, seed);
+  const baseInstruction = input.instruction?.slice(0, 72) || instructionFor(genre, lanes, collectible);
 
   return {
     v: 1,
@@ -436,18 +488,17 @@ export function buildPlayConfig(input: {
     bg_bottom: look.bgBottom,
     ground_color: look.ground,
     decor_color: look.decor,
-    instruction:
-      input.instruction?.slice(0, 72) || instructionFor(genre, lanes, collectible),
+    instruction: `${baseInstruction}${input.instruction ? "" : feelHint(feel)}`.slice(0, 80),
     difficulty,
     obstacle_style: input.obstacle_style ?? pickObstacleStyle(lower, genre),
     fx: input.fx ?? pickFx(lower),
     sfx: input.sfx ?? true,
     control:
       input.control ??
-      (genre === "roam" || genre === "dodge" || genre === "catch"
-        ? "drag"
-        : lanes === 3
-          ? "tap"
+      (feel.hold_flap
+        ? "hold"
+        : genre === "roam" || genre === "dodge" || genre === "catch"
+          ? "drag"
           : "tap"),
     hud_style: input.hud_style ?? "bold",
     lives: input.lives ?? (difficulty === "easy" ? 3 : difficulty === "insane" ? 1 : 2),
@@ -458,6 +509,7 @@ export function buildPlayConfig(input: {
     goal: input.goal ?? (genre === "catch" || genre === "roam" ? "collect" : "survive"),
     player_shape: input.player_shape ?? pickShape(lower, genre),
     seed,
+    feel,
   };
 }
 

@@ -1,6 +1,7 @@
 export {
   generateGameFromPrompt,
   buildPlayConfig,
+  pickFeel,
   encodePlayConfig,
   parsePlayConfig,
   resolvePlayConfig,
@@ -21,4 +22,5 @@ export type {
   PlayerShape,
   WorldStyle,
   GameGoal,
+  FeelMods,
 } from "./games/types";

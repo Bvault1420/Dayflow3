@@ -8,7 +8,8 @@ import {
   type GameThemeId,
   type ObstacleStyle,
 } from "@/lib/generate-game";
-import type { GameGoal, PlayerShape, WorldStyle } from "@/lib/games/types";
+import type { FeelMods, GameGoal, PlayerShape, WorldStyle } from "@/lib/games/types";
+import { pickFeel } from "@/lib/games/generate-config";
 
 const GENRES: GameGenre[] = ["flappy", "runner", "dodge", "catch", "tap", "roam"];
 const THEMES: GameThemeId[] = ["neon", "purple-pipes", "city", "candy", "monster"];
@@ -23,13 +24,18 @@ const SYSTEM = `You are Kairos, an Aippy-style game builder. The user types ONE 
 
 Map the FANTASY of the prompt onto the closest playable engine, then customize EVERYTHING so this game could not be confused with another:
 
-Engines:
-- roam = third-person street walker (GTA-like / 3D city / crime / open world). Drag to walk, tap jump, collect loot, dodge cars. Prefer this for city crime / 3D / walk-around ideas.
-- runner = endless run. lanes=3 for subway/temple lane-switch + jump; lanes=1 for side jump-runner
-- flappy = tap to flap through gaps
-- dodge = move to avoid falling threats
-- catch = catch good items, avoid bad
-- tap = tap targets before they vanish
+Engines — pick the one that MATCHES the fantasy. Do NOT default to the same engine every time:
+- roam = walk around (3D city / crime / open world). Drag + jump, loot vs cars
+- runner = you RUN forward. lanes=3 only for subway/temple lane-switch; else jump-run
+- flappy = fly / flap / jetpack through gaps
+- dodge = threats fall or rush at you — you only MOVE
+- catch = CATCH good stuff, avoid bad
+- tap = TAP targets (smash, whack, piano)
+
+CRITICAL: games must PLAY differently. Attach 1–3 feel mods that fit THIS idea (not a random pile):
+hold_flap (hold to fly/jetpack), double_jump, dash, homing (threats chase), magnet (loot pulls in),
+moving_gaps, bounce, sides (threats from the sides), tiny, huge, shield, invert (tap flips gravity).
+A jetpack prompt → flappy + hold_flap. Homing meteors → dodge + homing. Magnet coins → catch/roam + magnet.
 
 Invent an ORIGINAL title. NEVER use trademarks (Subway Surfers, Temple Run, GTA, Mario, Flappy Bird, Fortnite, Minecraft, etc.).
 
@@ -51,7 +57,8 @@ JSON keys (all required except duration_seconds):
 - goal: survive|collect|score
 - collectible: short noun (cash, stars, pearls…)
 - threat: short noun (cars, meteors, bombs…)
-- instruction: one line, max 64 chars, exact controls
+- feel: object of booleans (only true keys needed) — 1 to 3 mods that change how it PLAYS
+- instruction: one line, max 72 chars, exact controls including the feel mods
 - player_color, obstacle_color, accent_color, bg_top, bg_bottom, ground_color, decor_color: a cohesive UNIQUE #RRGGBB art direction
   If the user names a color (red, gold, dunkel, sunset…), that color leads the player or mood.
   If they do NOT name a color, invent a strong cinematic palette for THIS fantasy (sunset amber, arctic ice, rain noir, toxic lime, deep sea, sakura, volcanic…).
@@ -88,10 +95,39 @@ type AiResult = {
   ground_color?: string;
   decor_color?: string;
   duration_seconds?: number;
+  feel?: FeelMods;
 };
 
 const BANNED_TITLE =
   /\b(subway\s*surfers?|temple\s*run|flappy\s*bird|gta|grand theft|mario|sonic|pokemon|fortnite|minecraft|disney|nintendo)\b/i;
+
+const FEEL_FLAGS: (keyof FeelMods)[] = [
+  "hold_flap",
+  "double_jump",
+  "dash",
+  "homing",
+  "magnet",
+  "moving_gaps",
+  "bounce",
+  "sides",
+  "tiny",
+  "huge",
+  "shield",
+  "invert",
+];
+
+function sanitizeFeel(raw: FeelMods | undefined): FeelMods | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: FeelMods = {};
+  let n = 0;
+  for (const k of FEEL_FLAGS) {
+    if (raw[k]) {
+      out[k] = true;
+      n += 1;
+    }
+  }
+  return n ? out : undefined;
+}
 
 function hex(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
@@ -195,6 +231,7 @@ function normalize(parsed: AiResult, prompt: string, userDuration: number | null
     speed: Number(parsed.speed) || undefined,
     jump: Number(parsed.jump) || undefined,
     gravity: Number(parsed.gravity) || undefined,
+    feel: sanitizeFeel(parsed.feel) ?? pickFeel(prompt.toLowerCase(), genre, local.play.seed || 1),
   });
 
   if (genre === "runner" && lanes === 3 && !parsed.instruction) {
