@@ -291,78 +291,141 @@ export function PlayableGame({ config, playing, className }: Props) {
     canvas.addEventListener("pointermove", pointerMove);
 
     const drawBackground = () => {
+      const seed = config.seed || 1;
+      const world = config.world || config.theme;
+      const decor = config.decor_color || config.obstacle_color;
+      const ground = config.ground_color || config.bg_bottom;
       const g = ctx.createLinearGradient(0, 0, 0, H);
       g.addColorStop(0, config.bg_top);
-      g.addColorStop(0.55, config.bg_bottom);
-      g.addColorStop(1, config.ground_color || config.bg_bottom);
+      g.addColorStop(0.42, config.bg_bottom);
+      g.addColorStop(1, ground);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
 
       if (bgImg) {
-        ctx.globalAlpha = 0.55;
+        ctx.globalAlpha = 0.5;
         const scale = Math.max(W / bgImg.width, H / bgImg.height);
         const dw = bgImg.width * scale;
         const dh = bgImg.height * scale;
         ctx.drawImage(bgImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
         ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(8,14,28,0.28)";
-        ctx.fillRect(0, 0, W, H);
-      } else {
-        const world = config.world || config.theme;
-        const seed = config.seed || 1;
-        const decor = config.decor_color || config.obstacle_color;
-        const cityish = world === "city" || config.genre === "roam";
+      }
 
-        // horizon glow
-        const halo = ctx.createRadialGradient(W * 0.5, H * 0.42, 10, W * 0.5, H * 0.42, W * 0.7);
-        halo.addColorStop(0, `${config.accent_color}33`);
-        halo.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = halo;
-        ctx.fillRect(0, 0, W, H);
+      // sun / moon
+      const orbX = W * (0.18 + ((seed % 50) / 100));
+      const orbY = H * (0.14 + ((seed % 17) / 120));
+      const orbR = 18 + (seed % 14);
+      const sun = ctx.createRadialGradient(orbX, orbY, 2, orbX, orbY, orbR * 2.4);
+      sun.addColorStop(0, `${config.accent_color}cc`);
+      sun.addColorStop(0.35, `${config.accent_color}55`);
+      sun.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = sun;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, orbR * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = config.accent_color;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, orbR * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
 
-        for (let i = 0; i < 9; i++) {
-          const drift = cityish ? 0.55 : world === "ocean" ? 0.12 : 0.22;
-          const x = ((i * 97 + runX * drift + (seed % 40)) % (W + 100)) - 50;
-          const y = (i * 67 + (seed % 30)) % (H * 0.58);
-          const bw = 18 + ((seed + i * 13) % 5) * 9;
-          const bh = 56 + ((seed + i * 9) % 6) * 20;
-          if (cityish) {
-            ctx.fillStyle = decor;
-            ctx.globalAlpha = 0.38 + (i % 3) * 0.08;
-            ctx.fillRect(x, H * 0.7 - bh, bw, bh);
+      const cityish = world === "city" || config.genre === "roam" || config.genre === "runner";
+      if (cityish) {
+        const drawRow = (count: number, speedMul: number, alpha: number, yBase: number, maxH: number) => {
+          for (let i = 0; i < count; i++) {
+            const x = ((i * (W / count + 18) + runX * speedMul + (seed % 30)) % (W + 80)) - 40;
+            const bw = 22 + ((seed + i * 17) % 28);
+            const bh = 40 + ((seed + i * 11) % maxH);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = i % 2 === 0 ? decor : config.obstacle_color;
+            roundRect(ctx, x, yBase - bh, bw, bh, 3);
+            ctx.fill();
             ctx.globalAlpha = 0.55;
             ctx.fillStyle = config.accent_color;
-            ctx.fillRect(x + 5, H * 0.7 - bh + 10, 5, 7);
-            ctx.fillRect(x + bw - 12, H * 0.7 - bh + 22, 5, 7);
-          } else if (world === "space") {
-            ctx.globalAlpha = 0.35 + (i % 4) * 0.12;
-            ctx.fillStyle = config.accent_color;
-            ctx.beginPath();
-            ctx.arc(x, y, 1.5 + (i % 4), 0, Math.PI * 2);
-            ctx.fill();
-          } else if (world === "ocean") {
-            ctx.globalAlpha = 0.16;
-            ctx.fillStyle = config.accent_color;
-            ctx.beginPath();
-            ctx.ellipse(x, 40 + (i * 38) % (H * 0.7), bw * 0.55, 7, 0, 0, Math.PI * 2);
-            ctx.fill();
-          } else if (world === "forest" || world === "temple") {
-            ctx.globalAlpha = 0.28;
-            ctx.fillStyle = decor;
-            ctx.beginPath();
-            ctx.moveTo(x, H * 0.72);
-            ctx.lineTo(x + bw / 2, H * 0.72 - bh);
-            ctx.lineTo(x + bw, H * 0.72);
-            ctx.closePath();
-            ctx.fill();
-          } else {
-            ctx.globalAlpha = 0.22;
-            ctx.fillStyle = decor;
-            ctx.fillRect(x, y, bw, bh * 0.4);
+            const cols = 2 + (i % 3);
+            const rows = 3 + (i % 4);
+            const cellW = bw / (cols + 1);
+            const cellH = bh / (rows + 1);
+            for (let c = 0; c < cols; c++) {
+              for (let r = 0; r < rows; r++) {
+                if (((seed + i + c * 3 + r) % 5) === 0) continue;
+                ctx.globalAlpha = 0.25 + ((seed + r) % 3) * 0.12;
+                ctx.fillRect(x + cellW * (c + 0.45), yBase - bh + cellH * (r + 0.4), 3.5, 4.5);
+              }
+            }
           }
+        };
+        drawRow(8, 0.12, 0.22, H * 0.62, 70);
+        drawRow(6, 0.28, 0.4, H * 0.7, 90);
+        ctx.globalAlpha = 1;
+      } else if (world === "space") {
+        for (let i = 0; i < 28; i++) {
+          const x = ((i * 53 + runX * 0.08 + seed) % (W + 20)) - 10;
+          const y = (i * 37 + (seed % 40)) % (H * 0.7);
+          ctx.globalAlpha = 0.25 + (i % 5) * 0.12;
+          ctx.fillStyle = config.accent_color;
+          ctx.beginPath();
+          ctx.arc(x, y, 1 + (i % 3), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else if (world === "ocean") {
+        for (let i = 0; i < 10; i++) {
+          ctx.globalAlpha = 0.12;
+          ctx.strokeStyle = config.accent_color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          const y = 50 + i * 28 + Math.sin(runX * 0.02 + i) * 6;
+          ctx.moveTo(0, y);
+          for (let x = 0; x < W; x += 18) {
+            ctx.lineTo(x, y + Math.sin(x * 0.04 + runX * 0.03 + i) * 7);
+          }
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      } else if (world === "candy") {
+        for (let i = 0; i < 8; i++) {
+          const x = ((i * 80 + runX * 0.2 + seed) % (W + 60)) - 30;
+          const y = 40 + ((seed + i * 19) % Math.floor(H * 0.45));
+          ctx.globalAlpha = 0.22;
+          ctx.fillStyle = i % 2 ? config.player_color : config.accent_color;
+          ctx.beginPath();
+          ctx.arc(x, y, 10 + (i % 4) * 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else if (world === "forest" || world === "temple") {
+        for (let i = 0; i < 9; i++) {
+          const x = ((i * 70 + runX * 0.25 + seed) % (W + 50)) - 25;
+          const bh = 50 + ((seed + i * 9) % 80);
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = decor;
+          ctx.beginPath();
+          ctx.moveTo(x, H * 0.74);
+          ctx.lineTo(x + 16, H * 0.74 - bh);
+          ctx.lineTo(x + 32, H * 0.74);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        for (let i = 0; i < 6; i++) {
+          const x = ((i * 90 + runX * 0.18 + seed) % (W + 70)) - 35;
+          ctx.globalAlpha = 0.18;
+          ctx.fillStyle = decor;
+          roundRect(ctx, x, H * 0.22 + (i % 3) * 30, 40 + (i % 4) * 10, 16, 8);
+          ctx.fill();
         }
         ctx.globalAlpha = 1;
       }
+
+      // vignette
+      const vig = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.85);
+      vig.addColorStop(0, "rgba(0,0,0,0)");
+      vig.addColorStop(1, "rgba(0,0,0,0.28)");
+      ctx.fillStyle = vig;
+      ctx.fillRect(0, 0, W, H);
     };
 
     const drawObstacleShape = (x: number, y: number, w: number, h: number) => {
@@ -370,10 +433,17 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.drawImage(obstacleImg, x, y, w, h);
         return;
       }
-      ctx.fillStyle = config.obstacle_color;
+      const grd = ctx.createLinearGradient(x, y, x + w, y + h);
+      grd.addColorStop(0, config.obstacle_color);
+      grd.addColorStop(1, config.decor_color || config.obstacle_color);
+      ctx.fillStyle = grd;
       if (style === "orbs") {
         ctx.beginPath();
         ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `${config.accent_color}99`;
+        ctx.beginPath();
+        ctx.arc(x + w * 0.38, y + h * 0.38, Math.min(w, h) * 0.16, 0, Math.PI * 2);
         ctx.fill();
       } else if (style === "spikes") {
         ctx.beginPath();
@@ -383,7 +453,10 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.closePath();
         ctx.fill();
       } else {
-        roundRect(ctx, x, y, w, h, style === "blocks" ? 6 : 4);
+        roundRect(ctx, x, y, w, h, style === "blocks" ? 7 : 5);
+        ctx.fill();
+        ctx.fillStyle = `${config.accent_color}33`;
+        roundRect(ctx, x + 4, y + 4, w - 8, 6, 3);
         ctx.fill();
       }
     };
@@ -428,70 +501,99 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.shadowBlur = 0;
         return;
       }
+      ctx.shadowBlur = 0;
+      // contact shadow
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.beginPath();
+      ctx.ellipse(x, y + r * 0.95, r * 0.85, r * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       ctx.fillStyle = config.player_color;
-      const shape = config.player_shape || "orb";
+      const shape =
+        config.player_shape ||
+        (config.genre === "roam" || config.genre === "runner" ? "hero" : "orb");
+      const kick = Math.sin(runX * 0.12) * r * 0.18;
       if (shape === "hero") {
-        roundRect(ctx, x - r * 0.55, y - r * 1.15, r * 1.1, r * 1.6, 6);
+        ctx.fillStyle = config.obstacle_color;
+        roundRect(ctx, x - r * 0.28 + kick, y + r * 0.15, r * 0.28, r * 0.7, 4);
         ctx.fill();
+        roundRect(ctx, x + r * 0.02 - kick, y + r * 0.15, r * 0.28, r * 0.7, 4);
+        ctx.fill();
+        ctx.fillStyle = config.player_color;
+        roundRect(ctx, x - r * 0.55, y - r * 1.05, r * 1.1, r * 1.35, 8);
+        ctx.fill();
+        ctx.fillStyle = config.accent_color;
         ctx.beginPath();
-        ctx.arc(x, y - r * 1.25, r * 0.42, 0, Math.PI * 2);
+        ctx.arc(x, y - r * 1.22, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#1a1420";
+        ctx.beginPath();
+        ctx.arc(x - r * 0.12, y - r * 1.26, r * 0.08, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.16, y - r * 1.26, r * 0.08, 0, Math.PI * 2);
         ctx.fill();
       } else if (shape === "car") {
-        roundRect(ctx, x - r * 1.1, y - r * 0.45, r * 2.2, r * 0.95, 5);
+        roundRect(ctx, x - r * 1.15, y - r * 0.5, r * 2.3, r * 0.95, 6);
         ctx.fill();
-        ctx.fillStyle = "#0e1621";
-        roundRect(ctx, x - r * 0.45, y - r * 0.35, r * 0.9, r * 0.4, 3);
+        ctx.fillStyle = "#141820";
+        roundRect(ctx, x - r * 0.5, y - r * 0.38, r, r * 0.42, 4);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x - r * 0.7, y + r * 0.42, r * 0.28, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.7, y + r * 0.42, r * 0.28, 0, Math.PI * 2);
         ctx.fill();
       } else {
+        const rad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, 2, x, y, r);
+        rad.addColorStop(0, config.accent_color);
+        rad.addColorStop(0.35, config.player_color);
+        rad.addColorStop(1, config.obstacle_color);
+        ctx.fillStyle = rad;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
-      }
-      ctx.shadowBlur = 0;
-      if (shape === "orb") {
-        ctx.fillStyle = "#0e1621";
-        ctx.beginPath();
-        ctx.arc(x + r * 0.25, y - r * 0.15, r * 0.18, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.strokeStyle = `${config.accent_color}aa`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
     };
 
     const drawHudOverlay = () => {
       const { score, timeLeft, over, started, lives } = state;
-      const size = hudMinimal ? Math.floor(W * 0.1) : Math.floor(W * 0.14);
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(10,12,18,0.45)";
+      roundRect(ctx, 12, 12, 92, 36, 12);
+      ctx.fill();
+      roundRect(ctx, W - 104, 12, 92, 36, 12);
+      ctx.fill();
       ctx.fillStyle = config.accent_color;
-      ctx.font = `800 ${size}px system-ui, sans-serif`;
+      ctx.font = "800 16px system-ui, sans-serif";
+      ctx.fillText(`❤ ${lives}`, 24, 36);
+      ctx.textAlign = "right";
+      ctx.fillText(`${Math.ceil(Math.max(0, timeLeft))}s`, W - 24, 36);
       ctx.textAlign = "center";
-      ctx.fillText(String(score), W / 2, H * 0.16);
-
-      ctx.font = `700 12px system-ui, sans-serif`;
-      ctx.globalAlpha = 0.85;
-      const loot = config.collectible ? ` · ${config.collectible}` : "";
-      const extra = shieldOn ? " · shield" : dashT > 0 ? " · dash" : "";
-      ctx.fillText(
-        `${Math.ceil(Math.max(0, timeLeft))}s · ❤ ${lives}${loot}${extra}`,
-        W / 2,
-        H * 0.21
-      );
-      ctx.globalAlpha = 1;
+      ctx.font = hudMinimal ? "800 28px system-ui, sans-serif" : "800 36px system-ui, sans-serif";
+      ctx.fillText(String(score), W / 2, 40);
 
       if (!started && !over) {
-        ctx.fillStyle = "rgba(255,255,255,0.16)";
-        roundRect(ctx, W / 2 - 110, H * 0.42, 220, 36, 12);
+        ctx.fillStyle = "rgba(8,10,16,0.55)";
+        roundRect(ctx, 24, H * 0.38, W - 48, 64, 16);
         ctx.fill();
         ctx.fillStyle = config.accent_color;
-        ctx.font = "700 13px system-ui, sans-serif";
-        ctx.fillText(config.instruction, W / 2, H * 0.42 + 23);
+        ctx.font = "800 15px system-ui, sans-serif";
+        ctx.fillText(config.title, W / 2, H * 0.38 + 26);
+        ctx.font = "600 12px system-ui, sans-serif";
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(config.instruction, W / 2, H * 0.38 + 48);
+        ctx.globalAlpha = 1;
       }
 
       if (over) {
-        ctx.fillStyle = "rgba(14,22,33,0.55)";
+        ctx.fillStyle = "rgba(8,10,16,0.62)";
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = config.accent_color;
         ctx.font = "800 28px system-ui, sans-serif";
-        ctx.fillText(lives <= 0 ? "Out of lives" : "Time’s up", W / 2, H * 0.44);
+        ctx.fillText(lives <= 0 ? "Game over" : "Time’s up", W / 2, H * 0.44);
         ctx.font = "700 14px system-ui, sans-serif";
-        ctx.fillText(`Score ${score} · tap to replay`, W / 2, H * 0.5);
+        ctx.fillText(`${config.title} · ${score} pts · tap to replay`, W / 2, H * 0.52);
       }
     };
 

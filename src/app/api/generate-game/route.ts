@@ -26,7 +26,7 @@ Map the FANTASY of the prompt onto the closest playable engine, then customize E
 
 Engines — pick the one that MATCHES the fantasy. Do NOT default to the same engine every time:
 - roam = walk around (3D city / crime / open world). Drag + jump, loot vs cars
-- runner = you RUN forward. lanes=3 only for subway/temple lane-switch; else jump-run
+- runner = you RUN forward. lanes=3 ONLY if the user asked for lanes / subway / Spuren. Otherwise lanes=1. NEVER set lanes=3 on flappy/dodge/catch/tap/roam.
 - flappy = fly / flap / jetpack through gaps
 - dodge = threats fall or rush at you — you only MOVE
 - catch = CATCH good stuff, avoid bad
@@ -37,7 +37,9 @@ hold_flap (hold to fly/jetpack), double_jump, dash, homing (threats chase), magn
 moving_gaps, bounce, sides (threats from the sides), tiny, huge, shield, invert (tap flips gravity).
 A jetpack prompt → flappy + hold_flap. Homing meteors → dodge + homing. Magnet coins → catch/roam + magnet.
 
-Invent an ORIGINAL title. NEVER use trademarks (Subway Surfers, Temple Run, GTA, Mario, Flappy Bird, Fortnite, Minecraft, etc.).
+Invent an ORIGINAL title that sounds like a real game, not a keyword mash.
+NEVER use trademarks (Subway Surfers, Temple Run, GTA, Mario, Flappy Bird, Fortnite, Minecraft).
+Avoid generic stacks like "Turbo Rush", "Viral Blitz", "Neon Dash" unless the fantasy is actually that. Prefer a specific scene name (Midnight Toll, Pearl Sink, Ember Alley).
 
 JSON keys (all required except duration_seconds):
 - title (max 42, punchy, original)
@@ -187,7 +189,12 @@ function normalize(parsed: AiResult, prompt: string, userDuration: number | null
     ? (parsed.obstacle_style as ObstacleStyle)
     : local.play.obstacle_style;
   const fx = FX.includes(parsed.fx as FxStyle) ? (parsed.fx as FxStyle) : local.play.fx;
-  const lanes: 1 | 3 = genre === "roam" ? 1 : parsed.lanes === 3 || local.play.lanes === 3 ? 3 : 1;
+  const lanes: 1 | 3 =
+    genre === "runner" && parsed.lanes === 3
+      ? 3
+      : genre === "runner" && parsed.lanes !== 1 && local.play.lanes === 3
+        ? 3
+        : 1;
   const world = WORLDS.includes(parsed.world as WorldStyle)
     ? (parsed.world as WorldStyle)
     : local.play.world;

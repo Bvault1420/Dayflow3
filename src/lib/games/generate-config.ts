@@ -58,7 +58,8 @@ function pickWorld(lower: string, theme: GameThemeId): WorldStyle {
 }
 
 function pickShape(lower: string, genre: GameGenre): PlayerShape {
-  if (genre === "roam" || /mensch|person|character|held|hero|gta|crime/.test(lower)) return "hero";
+  if (genre === "roam" || genre === "runner" || /mensch|person|character|held|hero|gta|crime/.test(lower))
+    return "hero";
   if (/\b(drive|fahr|lenk|rennauto|sportwagen)\b/.test(lower)) return "car";
   return "orb";
 }
@@ -110,7 +111,7 @@ function pickGenre(lower: string): GameGenre {
     {
       value: "flappy",
       words:
-        /\bflappy\b|flappy\s*bird|\bfliegen\b|\bflug\b|flügel|fluegel|hoch\s*und\s*runter|up\s*and\s*down|through\s+.*\bpipes\b|glowing\s+pipes|durch\s*(die\s*)?(röhren|roehren|pipes)/gi,
+        /\bflappy\b|flappy\s*bird|\bfliegen\b|\bflug\b|flügel|fluegel|jetpack|hoch\s*und\s*runter|up\s*and\s*down|through\s+.*\bpipes\b|glowing\s+pipes|durch\s*.*(röhren|roehren|pipes)/gi,
     },
     {
       value: "catch",
@@ -148,9 +149,10 @@ function pickGenre(lower: string): GameGenre {
 }
 
 function pickLanes(lower: string, genre: GameGenre): 1 | 3 {
-  if (/subway|temple\s*run|3[\s-]*lane|3[\s-]*spur|drei\s*spur|lane\s*switch|spur(en)?\s*wechseln|endless\s*runner/.test(lower))
+  if (genre !== "runner") return 1;
+  if (/subway|temple\s*run|3[\s-]*lane|3[\s-]*spur|drei\s*spur|lane\s*switch|spur(en)?\s*wechseln/.test(lower))
     return 3;
-  if (genre === "runner" && /surfer|lane|spur/.test(lower)) return 3;
+  if (/surfer|lane|spur/.test(lower)) return 3;
   return 1;
 }
 
@@ -220,8 +222,12 @@ export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMod
     roam: ["dash", "magnet", "double_jump", "shield"],
   };
   const pool = byGenre[genre];
-  feel[pool[seed % pool.length]] = true;
-  feel[pool[(seed >> 3) % pool.length]] = true;
+  const a = seed % pool.length;
+  const b = Math.floor(seed / 7) % pool.length;
+  const k1 = pool[a];
+  const k2 = pool[b];
+  if (k1) feel[k1] = true;
+  if (k2) feel[k2] = true;
   return feel;
 }
 

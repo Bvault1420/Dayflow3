@@ -316,10 +316,8 @@ export function CreateScreen({
       setTab("idea");
       setStatus(
         src === "local"
-          ? `Fertig — “${draft.title}” · ${draft.play?.genre}`
-          : `Fertig (${src}) — “${draft.title}” · ${draft.play?.genre}${
-              draft.play?.world ? ` · ${draft.play.world}` : ""
-            } · ${draft.duration_seconds || duration}s`
+          ? `Fertig — “${draft.title}” ist spielbereit.`
+          : `Fertig — “${draft.title}” ist spielbereit.`
       );
     } catch {
       const draft = generateGameFromPrompt(idea);
@@ -903,25 +901,19 @@ export function CreateScreen({
 
         {preview && (
           <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-ink">
-            <div className="relative h-64 w-full">
+            <div className="relative h-[22rem] w-full">
               <PlayableGame
                 key={`${preview.genre}-${preview.theme}-${preview.seed}-${preview.player_color}-${preview.world}-${JSON.stringify(preview.feel)}-${preview.lanes}-${preview.player_image}-${preview.bg_image}`}
                 config={preview}
                 playing
               />
             </div>
-            <p className="border-t border-white/10 px-3 py-2 text-[11px] font-semibold text-white/70">
-              Live · {preview.title} · {preview.genre}
-              {preview.world ? ` · ${preview.world}` : ""}
-              {preview.lanes === 3 ? " · 3 lanes" : ""}
-              {preview.collectible ? ` · ${preview.collectible}` : ""}
-              {preview.feel
-                ? ` · ${Object.keys(preview.feel)
-                    .filter((k) => preview.feel?.[k as keyof typeof preview.feel])
-                    .slice(0, 3)
-                    .join(" · ")}`
-                : ""}
-            </p>
+            <div className="border-t border-white/10 px-3 py-2">
+              <p className="text-sm font-bold text-white">{preview.title}</p>
+              {blurb ? (
+                <p className="mt-0.5 text-[11px] leading-snug text-white/65">{blurb}</p>
+              ) : null}
+            </div>
           </div>
         )}
 
