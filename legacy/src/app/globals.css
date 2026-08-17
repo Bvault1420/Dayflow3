@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #eef2f7;
+  --foreground: #0e1621;
+  --ink: #0e1621;
+  --muted: #5b6573;
+  --canvas: #eef2f7;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --line: rgba(14, 22, 33, 0.1);
+  --accent: #2457ff;
+  --accent-soft: #dbe5ff;
+  --hot: #ff6a3d;
+  --hot-ink: #1a0f0b;
+  --feed-veil: rgba(8, 14, 28, 0.55);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--foreground);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #d9e4ff 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #ffe5d8 0%, transparent 45%),
+    var(--canvas);
+  font-family: var(--font-body), system-ui, sans-serif;
+  overscroll-behavior: none;
+}
+
+.font-display {
+  font-family: var(--font-display), var(--font-body), system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.bg-auth-mesh {
+  background:
+    radial-gradient(ellipse 70% 45% at 15% 10%, rgba(36, 87, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 90% 85%, rgba(255, 106, 61, 0.16), transparent 50%),
+    linear-gradient(165deg, #f5f7fb 0%, #e8eef8 48%, #f8f1eb 100%);
+}
+
+.app-shell {
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 24px 80px rgba(14, 22, 33, 0.12);
+}
+
+.brand-mark {
+  background: linear-gradient(135deg, var(--accent) 0%, #6d8cff 55%, var(--hot) 120%);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
