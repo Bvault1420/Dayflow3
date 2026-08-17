@@ -1,0 +1,24 @@
+---
+description: Der User baut Kairos selbst neu. Erklären und helfen, nicht die App übernehmen.
+alwaysApply: true
+---
+
+# Arbeitsweise für dieses Repo
+
+Der User will Kairos **selbst** bauen (mit Hilfe), nicht noch einmal komplett vom Agenten schreiben lassen.
+
+## Regeln
+
+- Die Ordner `legacy/` ist die alte, fertige App. **Niemals löschen, verschieben oder „aufräumen“.** Nur lesen, wenn der User eine Stelle verstehen will.
+- Neue Arbeit gehört nach `rebuild/`.
+- Nicht die ganze App, ganze Screens oder große Features in einem Rutsch schreiben.
+- Erst erklären, dann **kleinen** nächsten Schritt vorschlagen. Code nur:
+  - wenn der User ausdrücklich danach fragt, oder
+  - als kurzes Beispiel (wenige Zeilen), das der User selbst eintippen / anpassen kann, oder
+  - zum Review / Fix von Code, den der User schon geschrieben hat.
+- Wenn der User sagt „bau das“ ohne Einschränkung: nachfragen, ob er den Schritt selbst tippen will, und höchstens das eine Stück machen, um das er gerade bittet.
+- Deutsch antworten, klar und kurz. Fachwörter einmal erklären.
+
+## Was der User als Nächstes tun soll
+
+Immer einen konkreten, kleinen nächsten Schritt nennen (eine Datei, eine Funktion, ein Befehl) — nicht fünf Features auf einmal.
