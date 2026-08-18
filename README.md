@@ -1,21 +1,9 @@
 # Dayflow3
 
-Leeres, aufgeräumtes Repository. Bereit für Analyse und Recherche.
+Analyse-Workspace. Aktuelles Thema: **1inch Aqua**.
 
-## Stand
+## Ergebnis
 
-- `main` enthält keinen Anwendungscode.
-- Alte Kairos-/Aippy-Arbeit liegt nur auf getrennten Branches und Draft-PRs.
-  Sie ist hier **nicht** gemischt und wird nicht weitergeführt, bis du etwas anderes sagst.
-- Nächstes Thema kommt im Chat. Sobald du es nennst, startet die Recherche.
+Vollständiger Bericht: [`research/AQUA_ANALYSIS.md`](research/AQUA_ANALYSIS.md)
 
-## Ordner
-
-| Pfad | Zweck |
-| --- | --- |
-| `research/` | Notizen, Quellen, Ergebnisse der kommenden Analyse |
-
-## Alte Branches (nur Referenz)
-
-- `cursor/aippy-tiktok-roblox-app-36fa` — Draft-PR #1, Kairos-App
-- `cursor/rebuild-with-guidance-8025` — Draft-PR #2, Selbst-Rebuild-Anleitung
+Kurz: kein neues Critical zum Abziehen fremder Maker-Gelder. Mehrere echte, nachgeprüfte Probleme in `ship`/`dock`, Docs und SDK/Kettenlisten.
