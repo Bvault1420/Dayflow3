@@ -1,10 +1,8 @@
-# Research
+# Research: 1inch Aqua
 
-Wartet auf das Thema.
+Stand: 18. August 2026.
 
-Wenn du die Sache nennst, kommt hier:
+Vollständige Durchsicht von GitHub und der öffentlichen 1inch-Seiten. Nur Funde, die im aktuellen Code oder in den Docs doppelt bestätigt sind.
 
-1. Fragestellung und Scope
-2. Quellen und Befunde
-3. Bewertung / Empfehlung
-4. Offene Punkte
+- [AQUA_ANALYSIS.md](./AQUA_ANALYSIS.md) — vollständiger Bericht
+- Quellen: `1inch/aqua`, `1inch/swap-vm`, `1inch/sdks`, Docs, Whitepaper, Audits
