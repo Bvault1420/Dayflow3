@@ -156,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (email: string, password: string, displayName: string) => {
-      const emailRedirectTo = getAuthCallbackUrl("/");
+      const emailRedirectTo = getAuthCallbackUrl("/play");
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -193,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: getAuthCallbackUrl("/") },
+        options: { emailRedirectTo: getAuthCallbackUrl("/play") },
       });
       return { error: error?.message ?? null };
     },

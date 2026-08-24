@@ -3,19 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --background: #eef2f7;
-  --foreground: #0e1621;
-  --ink: #0e1621;
-  --muted: #5b6573;
-  --canvas: #eef2f7;
-  --surface: #ffffff;
-  --surface-2: #f7f9fc;
-  --line: rgba(14, 22, 33, 0.1);
-  --accent: #2457ff;
-  --accent-soft: #dbe5ff;
-  --hot: #ff6a3d;
-  --hot-ink: #1a0f0b;
-  --feed-veil: rgba(8, 14, 28, 0.55);
+  --background: #140e0a;
+  --foreground: #f4ead8;
+  --ink: #f4ead8;
+  --muted: #b9a894;
+  --canvas: #140e0a;
+  --surface: #221a14;
+  --surface-2: #2c221a;
+  --line: rgba(244, 234, 216, 0.12);
+  --accent: #e8a54b;
+  --accent-soft: rgba(232, 165, 75, 0.16);
+  --hot: #c45c3a;
+  --hot-ink: #f4ead8;
+  --live: #ff5a3c;
+  --feed-veil: rgba(10, 8, 6, 0.55);
 }
 
 html,
@@ -26,34 +27,45 @@ body {
 body {
   color: var(--foreground);
   background:
-    radial-gradient(1200px 600px at 10% -10%, #d9e4ff 0%, transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, #ffe5d8 0%, transparent 45%),
+    radial-gradient(900px 520px at 12% -8%, rgba(232, 165, 75, 0.18) 0%, transparent 52%),
+    radial-gradient(700px 420px at 100% 8%, rgba(196, 92, 58, 0.14) 0%, transparent 48%),
     var(--canvas);
   font-family: var(--font-body), system-ui, sans-serif;
   overscroll-behavior: none;
 }
 
 .font-display {
-  font-family: var(--font-display), var(--font-body), system-ui, sans-serif;
+  font-family: var(--font-display), Georgia, serif;
   letter-spacing: -0.03em;
 }
 
 .bg-auth-mesh {
   background:
-    radial-gradient(ellipse 70% 45% at 15% 10%, rgba(36, 87, 255, 0.18), transparent 55%),
-    radial-gradient(ellipse 55% 40% at 90% 85%, rgba(255, 106, 61, 0.16), transparent 50%),
-    linear-gradient(165deg, #f5f7fb 0%, #e8eef8 48%, #f8f1eb 100%);
+    radial-gradient(ellipse 70% 45% at 18% 8%, rgba(232, 165, 75, 0.22), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 92% 88%, rgba(196, 92, 58, 0.18), transparent 50%),
+    linear-gradient(165deg, #1a1410 0%, #140e0a 52%, #1c120e 100%);
 }
 
 .app-shell {
-  background: var(--surface);
+  background: var(--canvas);
   box-shadow:
     0 0 0 1px var(--line),
-    0 24px 80px rgba(14, 22, 33, 0.12);
+    0 28px 80px rgba(0, 0, 0, 0.45);
 }
 
 .brand-mark {
-  background: linear-gradient(135deg, var(--accent) 0%, #6d8cff 55%, var(--hot) 120%);
+  background: linear-gradient(145deg, #e8a54b 0%, #c45c3a 78%);
+}
+
+.film-frame {
+  box-shadow:
+    0 0 0 1px rgba(244, 234, 216, 0.16),
+    0 22px 60px rgba(0, 0, 0, 0.45);
+  background: #0a0806;
+}
+
+.shutter {
+  background: #0a0806;
 }
 
 .scrollbar-hide {

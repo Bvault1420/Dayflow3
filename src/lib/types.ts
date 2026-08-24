@@ -42,4 +42,4 @@ export type Comment = {
   profile?: Profile | null;
 };
 
-export type TabId = "feed" | "explore" | "notifications" | "profile" | "create";
+export type TabId = "heute" | "create" | "profile" | "moments";

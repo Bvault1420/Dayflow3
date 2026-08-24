@@ -28,7 +28,7 @@ function resolveOrigin(request: Request): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const nextRaw = searchParams.get("next") ?? "/";
+  const nextRaw = searchParams.get("next") ?? "/play";
   const next = nextRaw.startsWith("/") ? nextRaw : "/";
   const origin = resolveOrigin(request);
 
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}${next}`);
     }
     return NextResponse.redirect(
-      `${origin}/?authError=${encodeURIComponent(error.message)}`
+      `${origin}/play?authError=${encodeURIComponent(error.message)}`
     );
   }
 
@@ -47,9 +47,9 @@ export async function GET(request: Request) {
   const authError = searchParams.get("error_description") ?? searchParams.get("error");
   if (authError) {
     return NextResponse.redirect(
-      `${origin}/?authError=${encodeURIComponent(authError)}`
+      `${origin}/play?authError=${encodeURIComponent(authError)}`
     );
   }
 
-  return NextResponse.redirect(`${origin}/?authError=missing_code`);
+  return NextResponse.redirect(`${origin}/play?authError=missing_code`);
 }

@@ -1,22 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, Manrope } from "next/font/google";
+import { Fraunces, Outfit } from "next/font/google";
 import "./globals.css";
 
-const body = Manrope({
+const body = Outfit({
   subsets: ["latin"],
   variable: "--font-body",
 });
 
-const display = Bricolage_Grotesque({
+const display = Fraunces({
   subsets: ["latin"],
   variable: "--font-display",
-  weight: ["500", "600", "700", "800"],
+  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "Kairos — Short playable moments",
+  title: "Kairos — Nicht scrollen. Einen Moment spielen.",
   description:
-    "Scroll bite-size games, remix them with AI, and publish your own 10–60s experiences.",
+    "Jeden Tag ein gemeinsames Mini-Spiel. 10–60 Sekunden. Dann ist es vorbei.",
   applicationName: "Kairos",
 };
 
@@ -24,7 +24,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#eef2f7",
+  themeColor: "#140e0a",
   viewportFit: "cover",
 };
 
@@ -34,7 +34,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="de">
       <body className={`${body.variable} ${display.variable} antialiased`}>
         {children}
       </body>

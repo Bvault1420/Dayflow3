@@ -8,6 +8,8 @@ type Props = {
   config: PlayConfig;
   playing: boolean;
   className?: string;
+  onStart?: () => void;
+  onOver?: (score: number) => void;
 };
 
 type Target = { x: number; y: number; r: number; life: number; max: number; bad?: boolean };
@@ -19,8 +21,12 @@ type Faller = { x: number; y: number; r: number; vy: number; vx?: number; bad: b
  * Real short-form canvas games (flappy / runner / dodge / catch / tap / roam).
  * Each PlayConfig is unique (colors, world, collectibles) from the user's prompt.
  */
-export function PlayableGame({ config, playing, className }: Props) {
+export function PlayableGame({ config, playing, className, onStart, onOver }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const onStartRef = useRef(onStart);
+  const onOverRef = useRef(onOver);
+  onStartRef.current = onStart;
+  onOverRef.current = onOver;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -126,6 +132,9 @@ export function PlayableGame({ config, playing, className }: Props) {
     const gravity = config.gravity * config.speed;
     const jump = -9.2 * config.jump;
 
+    let startedFired = false;
+    let overFired = false;
+
     const resetRound = (keepScore = false) => {
       playerY = H * 0.45;
       playerX = config.genre === "flappy" ? W * 0.28 : config.genre === "roam" ? W * 0.5 : W * 0.22;
@@ -150,6 +159,8 @@ export function PlayableGame({ config, playing, className }: Props) {
         shieldOn = !!feel.shield;
         gravSign = 1;
         holding = false;
+        startedFired = false;
+        overFired = false;
       }
     };
 
@@ -158,6 +169,15 @@ export function PlayableGame({ config, playing, className }: Props) {
     const bumpScore = (n = 1) => {
       state.score += n;
       if (sfxOn) kairosSfx.score();
+    };
+
+    const endGame = () => {
+      state.over = true;
+      state.started = true;
+      if (!overFired) {
+        overFired = true;
+        onOverRef.current?.(state.score);
+      }
     };
 
     const fail = () => {
@@ -177,7 +197,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       }
       state.lives = Math.max(0, state.lives - 1);
       if (state.lives <= 0) {
-        state.over = true;
+        endGame();
         return;
       }
       const score = state.score;
@@ -188,17 +208,16 @@ export function PlayableGame({ config, playing, className }: Props) {
       state.started = true;
     };
 
-    const endGame = () => {
-      state.over = true;
-      state.started = true;
-    };
-
     const onPointer = (clientX: number, clientY: number) => {
       if (!playing || state.over) {
         if (state.over) resetRound(false);
         return;
       }
       if (audio && audio.paused) void audio.play().catch(() => undefined);
+      if (!state.started && !startedFired) {
+        startedFired = true;
+        onStartRef.current?.();
+      }
       state.started = true;
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left;
@@ -603,9 +622,9 @@ export function PlayableGame({ config, playing, className }: Props) {
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = config.accent_color;
         ctx.font = "800 28px system-ui, sans-serif";
-        ctx.fillText(lives <= 0 ? "Game over" : "Time’s up", W / 2, H * 0.44);
+        ctx.fillText(lives <= 0 ? "Vorbei" : "Zeit um", W / 2, H * 0.44);
         ctx.font = "700 14px system-ui, sans-serif";
-        ctx.fillText(`${config.title} · ${score} pts · tap to replay`, W / 2, H * 0.52);
+        ctx.fillText(`${config.title} · ${score} · tippen für nochmal`, W / 2, H * 0.52);
       }
     };
 
@@ -865,7 +884,7 @@ export function PlayableGame({ config, playing, className }: Props) {
       ctx.fillStyle = config.accent_color;
       ctx.font = "800 11px system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("JUMP", W * 0.86, H * 0.82 + 4);
+      ctx.fillText("SPRUNG", W * 0.86, H * 0.82 + 4);
 
       drawPlayer(playerX, playerY, playerR);
     };

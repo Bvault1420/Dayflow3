@@ -2,7 +2,9 @@
 
 function beep(freq: number, duration = 0.08, type: OscillatorType = "square", vol = 0.08) {
   try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -30,4 +32,12 @@ export const kairosSfx = {
   },
   fail: () => beep(140, 0.18, "sawtooth", 0.07),
   tap: () => beep(740, 0.04, "sine", 0.05),
+  /** Four-note recognition jingle — start of a moment. */
+  jingle: () => {
+    const notes = [392, 494, 587, 784];
+    notes.forEach((n, i) => {
+      window.setTimeout(() => beep(n, 0.12, "sine", 0.07), i * 90);
+    });
+  },
+  shutter: () => beep(180, 0.06, "triangle", 0.05),
 };

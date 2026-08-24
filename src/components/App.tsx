@@ -8,19 +8,27 @@ import { Feed } from "./Feed";
 import { CreateScreen } from "./CreateScreen";
 import { ProfileScreen } from "./ProfileScreen";
 import { SettingsScreen } from "./SettingsScreen";
-import { ExploreScreen } from "./ExploreScreen";
+import { HeuteScreen } from "./HeuteScreen";
 import { NotificationsScreen } from "./NotificationsScreen";
 import type { TabId } from "@/lib/types";
+import type { Game } from "@/lib/types";
+import { kairosSfx } from "@/lib/kairos-sfx";
+import { fetchTrendingGames } from "@/lib/supabase/queries";
+import { consumeMoment, readBudget } from "@/lib/moment-budget";
 
 function AppShell() {
   const { user, loading } = useAuth();
-  const [tab, setTab] = useState<TabId>("feed");
+  const [tab, setTab] = useState<TabId>("heute");
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
   const [createKey, setCreateKey] = useState(0);
   const [feedKey, setFeedKey] = useState(0);
   const [focusGameId, setFocusGameId] = useState<string | null>(null);
   const [authBanner, setAuthBanner] = useState<string | null>(null);
+  const [shutter, setShutter] = useState(false);
+  const [community, setCommunity] = useState<Game[]>([]);
+  const [createPrompt, setCreatePrompt] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -40,6 +48,29 @@ function AppShell() {
     }
   }, [user]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTrendingGames(12)
+      .then((rows) => {
+        if (!cancelled) setCommunity(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setCommunity([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [feedKey]);
+
+  function flashThen(next: () => void) {
+    setShutter(true);
+    kairosSfx.shutter();
+    window.setTimeout(() => {
+      next();
+      window.setTimeout(() => setShutter(false), 70);
+    }, 80);
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-canvas">
@@ -52,48 +83,40 @@ function AppShell() {
     return (
       <div className="min-h-dvh">
         {authBanner && (
-          <div className="fixed inset-x-0 top-0 z-50 bg-red-600 px-4 py-2 text-center text-sm text-white">
+          <div className="fixed inset-x-0 top-0 z-50 bg-hot px-4 py-2 text-center text-sm text-ink">
             {authBanner}
           </div>
         )}
         <AuthScreen />
         <button
           type="button"
-          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-white/90 px-4 py-2 text-sm font-medium text-ink backdrop-blur"
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-surface/90 px-4 py-2 text-sm font-medium text-ink backdrop-blur"
           onClick={() => {
             setShowAuth(false);
             setAuthBanner(null);
           }}
         >
-          Continue browsing
+          Weiter ohne Konto
         </button>
       </div>
     );
   }
 
-  function requireAuth(next?: TabId) {
-    if (!user) {
-      setShowAuth(true);
-      return;
-    }
-    if (next) setTab(next);
-  }
-
   function onNavChange(next: TabId) {
     setShowSettings(false);
-    if ((next === "create" || next === "profile" || next === "notifications") && !user) {
-      requireAuth(next);
-      return;
-    }
-    if (next === "feed") setFocusGameId(null);
-    setTab(next);
+    setShowAlerts(false);
+    if (next === "heute") setFocusGameId(null);
+    flashThen(() => setTab(next));
   }
 
   function openGame(gameId: string) {
+    const budget = readBudget();
+    if (budget.left <= 0) return;
+    consumeMoment();
     setFocusGameId(gameId);
     setFeedKey((k) => k + 1);
     setShowSettings(false);
-    setTab("feed");
+    flashThen(() => setTab("moments"));
   }
 
   return (
@@ -106,9 +129,36 @@ function AppShell() {
               setTab("profile");
             }}
           />
+        ) : showAlerts ? (
+          <NotificationsScreen
+            onRequireAuth={() => setShowAuth(true)}
+            onBack={() => setShowAlerts(false)}
+          />
         ) : (
           <>
-            {tab === "feed" && (
+            {tab === "heute" && (
+              <HeuteScreen
+                community={community}
+                onOpenCreate={(prompt) => {
+                  setCreatePrompt(prompt);
+                  setCreateKey((k) => k + 1);
+                  if (!user) {
+                    setShowAuth(true);
+                    return;
+                  }
+                  flashThen(() => setTab("create"));
+                }}
+                onOpenGame={openGame}
+                onOpenMoments={() => {
+                  const budget = readBudget();
+                  if (budget.left <= 0) return;
+                  consumeMoment();
+                  setFocusGameId(null);
+                  flashThen(() => setTab("moments"));
+                }}
+              />
+            )}
+            {tab === "moments" && (
               <Feed
                 key={feedKey}
                 refreshKey={feedKey}
@@ -116,26 +166,28 @@ function AppShell() {
                 onNeedAuth={() => setShowAuth(true)}
               />
             )}
-            {tab === "explore" && <ExploreScreen onOpenGame={openGame} />}
-            {tab === "notifications" && (
-              <NotificationsScreen onRequireAuth={() => setShowAuth(true)} />
-            )}
             {tab === "profile" && (
               <ProfileScreen
                 onRequireAuth={() => setShowAuth(true)}
                 onOpenSettings={() => setShowSettings(true)}
                 onOpenGame={openGame}
+                onOpenAlerts={() => setShowAlerts(true)}
               />
             )}
             {tab === "create" && (
               <CreateScreen
                 key={createKey}
-                onClose={() => setTab("feed")}
+                initialPrompt={createPrompt}
+                onClose={() => {
+                  setCreatePrompt("");
+                  flashThen(() => setTab("heute"));
+                }}
                 onPublished={() => {
                   setCreateKey((k) => k + 1);
                   setFeedKey((k) => k + 1);
                   setFocusGameId(null);
-                  setTab("profile");
+                  setCreatePrompt("");
+                  flashThen(() => setTab("profile"));
                 }}
               />
             )}
@@ -143,7 +195,11 @@ function AppShell() {
         )}
       </div>
 
-      {tab !== "create" && !showSettings && <BottomNav active={tab} onChange={onNavChange} />}
+      {tab !== "create" && !showSettings && !showAlerts && (
+        <BottomNav active={tab === "moments" ? "heute" : tab} onChange={onNavChange} />
+      )}
+
+      {shutter && <div className="shutter pointer-events-none absolute inset-0 z-[80]" />}
     </div>
   );
 }

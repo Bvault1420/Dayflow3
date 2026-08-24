@@ -1,13 +1,11 @@
 "use client";
 
-import { Bell, Compass, House, Plus, User } from "lucide-react";
+import { Plus, Sun, User } from "lucide-react";
 import type { TabId } from "@/lib/types";
 
-const ITEMS: { id: TabId; icon: typeof House; label: string }[] = [
-  { id: "feed", icon: House, label: "Home" },
-  { id: "explore", icon: Compass, label: "Explore" },
-  { id: "notifications", icon: Bell, label: "Alerts" },
-  { id: "profile", icon: User, label: "Profile" },
+const ITEMS: { id: TabId; icon: typeof Sun; label: string }[] = [
+  { id: "heute", icon: Sun, label: "Heute" },
+  { id: "profile", icon: User, label: "Ich" },
 ];
 
 export function BottomNav({
@@ -20,7 +18,7 @@ export function BottomNav({
   return (
     <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-4 pb-[max(0.85rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto mx-auto flex max-w-lg items-stretch gap-2">
-        <div className="flex flex-1 items-center justify-between rounded-2xl border border-[var(--line)] bg-white/90 px-1.5 py-1.5 backdrop-blur-xl">
+        <div className="flex flex-1 items-center justify-between rounded-2xl border border-[var(--line)] bg-[var(--surface)]/90 px-1.5 py-1.5 backdrop-blur-xl">
           {ITEMS.map(({ id, icon: Icon, label }) => {
             const isActive = active === id;
             return (
@@ -41,7 +39,7 @@ export function BottomNav({
         </div>
         <button
           type="button"
-          aria-label="Create"
+          aria-label="Moment machen"
           onClick={() => onChange("create")}
           className="flex w-14 shrink-0 items-center justify-center rounded-2xl bg-hot text-hot-ink transition hover:brightness-105 active:scale-[0.97]"
         >

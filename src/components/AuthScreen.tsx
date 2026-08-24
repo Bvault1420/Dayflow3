@@ -29,25 +29,25 @@ export function AuthScreen() {
         if (res.error) {
           if (/confirm|verif|email_not_confirmed/i.test(res.error)) {
             setNeedsConfirm(true);
-            setError("Please confirm your email first, or resend the confirmation mail below.");
+            setError("Bitte zuerst die E-Mail bestätigen — oder unten neu senden.");
           } else if (/invalid login/i.test(res.error)) {
-            setError("Email or password is incorrect.");
+            setError("E-Mail oder Passwort stimmt nicht.");
           } else {
             setError(res.error);
           }
         }
       } else {
         if (!displayName.trim()) {
-          setError("Please enter a display name");
+          setError("Bitte einen Namen angeben");
           return;
         }
         const res = await signUp(email.trim(), password, displayName.trim());
         if (res.error) setError(res.error);
         else if (res.needsEmailConfirm) {
           setNeedsConfirm(true);
-          setInfo("Account created. Check your inbox (and spam) for the confirmation link.");
+          setInfo("Konto angelegt. Schau in Posteingang und Spam.");
         } else {
-          setInfo("Account created — you're in.");
+          setInfo("Konto angelegt — du bist drin.");
         }
       }
     } finally {
@@ -57,7 +57,7 @@ export function AuthScreen() {
 
   async function onResend() {
     if (!email.trim()) {
-      setError("Enter your email first");
+      setError("Zuerst E-Mail eintragen");
       return;
     }
     setBusy(true);
@@ -65,7 +65,7 @@ export function AuthScreen() {
     const res = await resendConfirmation(email.trim());
     setBusy(false);
     if (res.error) setError(res.error);
-    else setInfo("Confirmation email sent again. Check spam too.");
+    else setInfo("Bestätigung nochmal gesendet.");
   }
 
   return (
@@ -79,17 +79,15 @@ export function AuthScreen() {
       >
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 w-fit">
-            <BrandMark className="h-16 w-16 shadow-[0_18px_40px_rgba(36,87,255,0.28)]" />
+            <BrandMark className="h-16 w-16 shadow-[0_18px_40px_rgba(232,165,75,0.28)]" />
           </div>
           <BrandWordmark className="block text-5xl text-ink" />
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Short playable moments.
-            <br />
-            Create, remix, and publish in seconds.
+            Nicht scrollen. Einen Moment spielen.
           </p>
         </div>
 
-        <div className="rounded-[1.6rem] border border-[var(--line)] bg-white/80 p-5 shadow-[0_20px_60px_rgba(14,22,33,0.08)] backdrop-blur-xl">
+        <div className="rounded-[1.6rem] border border-[var(--line)] bg-surface/80 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl">
           <div className="mb-5 flex rounded-xl bg-canvas p-1">
             {(["login", "signup"] as const).map((m) => (
               <button
@@ -101,11 +99,11 @@ export function AuthScreen() {
                   setInfo(null);
                   setNeedsConfirm(false);
                 }}
-                className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition ${
-                  mode === m ? "bg-ink text-white" : "text-muted"
+                className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition ${
+                  mode === m ? "bg-ink text-[#140e0a]" : "text-muted"
                 }`}
               >
-                {m === "login" ? "Log in" : "Sign up"}
+                {m === "login" ? "Login" : "Konto"}
               </button>
             ))}
           </div>
@@ -113,46 +111,46 @@ export function AuthScreen() {
           <form onSubmit={onSubmit}>
             {mode === "signup" && (
               <label className="mb-3 block">
-                <span className="mb-1.5 block text-xs font-medium text-muted">Display name</span>
+                <span className="mb-1.5 block text-xs font-medium text-muted">Name</span>
                 <input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
-                  placeholder="yourname"
+                  className="w-full rounded-xl border border-[var(--line)] bg-canvas px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
+                  placeholder="dein Name"
                   autoComplete="nickname"
                 />
               </label>
             )}
 
             <label className="mb-3 block">
-              <span className="mb-1.5 block text-xs font-medium text-muted">Email</span>
+              <span className="mb-1.5 block text-xs font-medium text-muted">E-Mail</span>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
-                placeholder="you@email.com"
+                className="w-full rounded-xl border border-[var(--line)] bg-canvas px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
+                placeholder="du@email.de"
                 autoComplete="email"
               />
             </label>
 
             <label className="mb-4 block">
-              <span className="mb-1.5 block text-xs font-medium text-muted">Password</span>
+              <span className="mb-1.5 block text-xs font-medium text-muted">Passwort</span>
               <input
                 type="password"
                 required
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
+                className="w-full rounded-xl border border-[var(--line)] bg-canvas px-4 py-3 text-sm text-ink outline-none ring-accent focus:ring-2"
                 placeholder="••••••••"
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
               />
             </label>
 
             {error && (
-              <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+              <p className="mb-3 rounded-xl bg-hot/15 px-3 py-2 text-sm text-hot">{error}</p>
             )}
             {info && (
               <p className="mb-3 rounded-xl bg-accent-soft px-3 py-2 text-sm text-accent">{info}</p>
@@ -163,32 +161,32 @@ export function AuthScreen() {
                 type="button"
                 disabled={busy}
                 onClick={onResend}
-                className="mb-3 w-full rounded-xl border border-[var(--line)] bg-white py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+                className="mb-3 w-full rounded-xl border border-[var(--line)] bg-surface py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
               >
-                Resend confirmation email
+                Bestätigung nochmal senden
               </button>
             )}
 
             <button
               type="submit"
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-[#140e0a] transition hover:brightness-110 disabled:opacity-60"
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {mode === "login" ? "Enter Kairos" : "Create account"}
+              {mode === "login" ? "Kairos öffnen" : "Konto anlegen"}
             </button>
           </form>
 
           <p className="mt-4 text-center text-[11px] leading-relaxed text-muted">
-            By continuing you agree to our{" "}
+            Mit dem Weitergehen giltst du{" "}
             <a href="/terms" className="font-semibold text-accent underline-offset-2 hover:underline">
-              Terms
+              Nutzungsbedingungen
             </a>{" "}
-            and{" "}
+            und{" "}
             <a href="/privacy" className="font-semibold text-accent underline-offset-2 hover:underline">
-              Privacy Policy
-            </a>
-            .
+              Datenschutz
+            </a>{" "}
+            als gelesen.
           </p>
         </div>
       </motion.div>

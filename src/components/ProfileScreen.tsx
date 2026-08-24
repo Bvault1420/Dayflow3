@@ -2,15 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  ChevronRight,
-  Heart,
-  History,
-  LayoutGrid,
-  LogIn,
-  Settings,
-  Bookmark,
-} from "lucide-react";
+import { Bell, ChevronRight, Heart, History, LayoutGrid, LogIn, Settings, Bookmark } from "lucide-react";
 import { BrandMark, BrandWordmark } from "@/components/Brand";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -21,6 +13,7 @@ import {
 } from "@/lib/supabase/queries";
 import type { Game } from "@/lib/types";
 import { formatCount } from "@/lib/demo-data";
+import { GameCover } from "./GameCover";
 
 type Tab = "created" | "liked" | "saved" | "history";
 
@@ -28,10 +21,12 @@ export function ProfileScreen({
   onRequireAuth,
   onOpenSettings,
   onOpenGame,
+  onOpenAlerts,
 }: {
   onRequireAuth: () => void;
   onOpenSettings: () => void;
   onOpenGame: (gameId: string) => void;
+  onOpenAlerts: () => void;
 }) {
   const { user, profile } = useAuth();
   const [tab, setTab] = useState<Tab>("created");
@@ -85,17 +80,17 @@ export function ProfileScreen({
     };
   }, [user, tab]);
 
-  const displayName = profile?.display_name || user?.email?.split("@")[0] || "Creator";
+  const displayName = profile?.display_name || user?.email?.split("@")[0] || "Du";
   const handle = profile?.username ? `@${profile.username}` : user?.email || "";
-  const bio = profile?.bio || "Build short games. Publish. Play.";
+  const bio = profile?.bio || "Kurze Momente bauen. Teilen. Spielen.";
 
   const tabs = useMemo(
     () =>
       [
-        { id: "created" as const, label: "Created", icon: LayoutGrid },
-        { id: "liked" as const, label: "Liked", icon: Heart },
-        { id: "saved" as const, label: "Saved", icon: Bookmark },
-        { id: "history" as const, label: "History", icon: History },
+        { id: "created" as const, label: "Momente", icon: LayoutGrid },
+        { id: "liked" as const, label: "Geliked", icon: Heart },
+        { id: "saved" as const, label: "Gespeichert", icon: Bookmark },
+        { id: "history" as const, label: "Gespielt", icon: History },
       ] as const,
     []
   );
@@ -104,19 +99,17 @@ export function ProfileScreen({
     return (
       <div className="mx-auto flex h-full w-full max-w-lg flex-col items-center justify-center px-6 text-center">
         <BrandMark className="h-16 w-16" />
-        <h2 className="mt-5 font-display text-3xl font-extrabold tracking-tight text-ink">
-          Your creator space
-        </h2>
+        <h2 className="mt-5 font-display text-3xl font-semibold tracking-tight text-ink">Ich</h2>
         <p className="mt-2 max-w-sm text-sm text-muted">
-          Sign in to see created games, likes, saves, and play history.
+          Einloggen, um deine Momente, Likes und die Geschichte zu sehen.
         </p>
         <button
           type="button"
           onClick={onRequireAuth}
-          className="mt-6 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-bold text-white"
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-bold text-[#140e0a]"
         >
           <LogIn className="h-4 w-4" />
-          Sign in
+          Einloggen
         </button>
       </div>
     );
@@ -126,7 +119,7 @@ export function ProfileScreen({
     <div className="mx-auto h-full w-full max-w-lg overflow-y-auto px-4 pb-28 pt-6 scrollbar-hide">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-accent text-2xl font-black text-white shadow-[0_10px_30px_rgba(36,87,255,0.28)]">
+          <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-accent text-2xl font-black text-[#140e0a]">
             {profile?.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -136,32 +129,42 @@ export function ProfileScreen({
           </div>
           <div>
             <BrandWordmark className="text-xs text-muted" />
-            <h2 className="mt-1 font-display text-2xl font-extrabold tracking-tight text-ink">
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink">
               {displayName}
             </h2>
             <p className="text-sm text-muted">{handle}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="rounded-full border border-[var(--line)] bg-white p-2.5 text-ink"
-          aria-label="Open settings"
-        >
-          <Settings className="h-4 w-4" />
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onOpenAlerts}
+            className="rounded-full border border-[var(--line)] bg-surface p-2.5 text-ink"
+            aria-label="Hinweise"
+          >
+            <Bell className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-full border border-[var(--line)] bg-surface p-2.5 text-ink"
+            aria-label="Einstellungen"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <p className="mt-4 text-sm leading-relaxed text-muted">{bio}</p>
 
       <div className="mt-5 grid grid-cols-3 gap-2 text-center">
         {[
-          ["Followers", profile?.follower_count ?? 0],
-          ["Following", profile?.following_count ?? 0],
-          ["Games", createdCount],
+          ["Follower", profile?.follower_count ?? 0],
+          ["Folgt", profile?.following_count ?? 0],
+          ["Momente", createdCount],
         ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-2xl border border-[var(--line)] bg-white px-2 py-3">
-            <p className="font-display text-lg font-extrabold text-ink">{value}</p>
+          <div key={String(label)} className="rounded-2xl border border-[var(--line)] bg-surface px-2 py-3">
+            <p className="font-display text-lg font-semibold text-ink">{value}</p>
             <p className="text-[11px] text-muted">{label}</p>
           </div>
         ))}
@@ -170,23 +173,23 @@ export function ProfileScreen({
       <button
         type="button"
         onClick={onOpenSettings}
-        className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-left"
+        className="mt-4 flex w-full items-center justify-between rounded-2xl border border-[var(--line)] bg-surface px-4 py-3 text-left"
       >
         <div>
-          <p className="text-sm font-semibold text-ink">Edit profile & settings</p>
-          <p className="text-xs text-muted">Name, bio, notifications, account</p>
+          <p className="text-sm font-semibold text-ink">Profil & Einstellungen</p>
+          <p className="text-xs text-muted">Name, Bio, Konto</p>
         </div>
         <ChevronRight className="h-4 w-4 text-muted" />
       </button>
 
-      <div className="mt-6 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--line)] bg-white p-1">
+      <div className="mt-6 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--line)] bg-surface p-1">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-semibold transition ${
-              tab === id ? "bg-ink text-white" : "text-muted hover:text-ink"
+              tab === id ? "bg-ink text-[#140e0a]" : "text-muted hover:text-ink"
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -197,10 +200,10 @@ export function ProfileScreen({
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         {loading ? (
-          <p className="col-span-2 py-10 text-center text-sm text-muted">Loading…</p>
+          <p className="col-span-2 py-10 text-center text-sm text-muted">Lädt…</p>
         ) : items.length === 0 ? (
           <p className="col-span-2 py-10 text-center text-sm text-muted">
-            Nothing here yet. Create or play a game to fill this tab.
+            Noch leer. Spiel oder mach einen Moment.
           </p>
         ) : (
           items.map((game, index) => (
@@ -211,18 +214,13 @@ export function ProfileScreen({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.04 }}
               onClick={() => onOpenGame(game.id)}
-              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white text-left"
+              className="overflow-hidden rounded-2xl border border-[var(--line)] bg-surface text-left"
             >
-              <div
-                className="aspect-[4/5] w-full"
-                style={{
-                  background: `linear-gradient(160deg, var(--accent), var(--hot, #ff6a3d))`,
-                }}
-              />
+              <GameCover game={game} />
               <div className="p-3">
                 <h3 className="truncate text-sm font-semibold text-ink">{game.title}</h3>
                 <p className="mt-1 text-[11px] text-muted">
-                  {formatCount(game.view_count)} plays · {formatCount(game.like_count)} likes
+                  {formatCount(game.view_count)} mal gespielt
                 </p>
               </div>
             </motion.button>

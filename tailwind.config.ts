@@ -20,6 +20,7 @@ export default {
         "accent-soft": "var(--accent-soft)",
         hot: "var(--hot)",
         "hot-ink": "var(--hot-ink)",
+        live: "var(--live)",
       },
       fontFamily: {
         display: ["var(--font-display)", "system-ui", "sans-serif"],

@@ -112,17 +112,17 @@ function CommentsSheet({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 28, stiffness: 320 }}
-            className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-hidden rounded-t-[1.5rem] border border-[var(--line)] bg-white"
+            className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-hidden rounded-t-[1.5rem] border border-[var(--line)] bg-surface"
           >
             <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-              <h3 className="font-display text-lg font-bold text-ink">Comments</h3>
+              <h3 className="font-display text-lg font-bold text-ink">Kommentare</h3>
               <button type="button" onClick={onClose} className="text-muted">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="max-h-64 space-y-3 overflow-y-auto px-4 py-3">
               {comments.length === 0 && !error && (
-                <p className="py-8 text-center text-sm text-muted">No comments yet</p>
+                <p className="py-8 text-center text-sm text-muted">Noch keine Kommentare</p>
               )}
               {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
               {comments.map((c) => (
@@ -143,7 +143,7 @@ function CommentsSheet({
               <input
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Add a comment..."
+                placeholder="Kommentar…"
                 className="flex-1 rounded-xl border border-[var(--line)] bg-canvas px-4 py-2.5 text-sm text-ink outline-none"
                 maxLength={500}
                 onKeyDown={(e) => {
@@ -156,7 +156,7 @@ function CommentsSheet({
                 onClick={submit}
                 className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
-                Post
+                Senden
               </button>
             </div>
           </motion.div>
@@ -317,7 +317,7 @@ function FeedItem({
   async function shareGame() {
     const shareData = {
       title: game.title,
-      text: `Play “${game.title}” on Kairos`,
+      text: `Spiel „${game.title}“ auf Kairos`,
       url: typeof window !== "undefined" ? window.location.href : "https://kairos.app",
     };
     try {
@@ -340,8 +340,8 @@ function FeedItem({
 
       <div className="pointer-events-none absolute left-4 right-4 top-12 z-10 flex items-end justify-between">
         <div>
-          <p className="font-display text-2xl font-extrabold text-white">Kairos</p>
-          <p className="text-xs font-medium text-white/70">Swipe the next moment</p>
+          <p className="font-display text-2xl font-extrabold text-ink">Kairos</p>
+          <p className="text-xs font-medium text-white/70">Der nächste Moment</p>
         </div>
         <div className="rounded-lg bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
           {game.duration_seconds}s
@@ -373,7 +373,7 @@ function FeedItem({
               }`}
             >
               {!following && <Plus className="h-3.5 w-3.5" strokeWidth={3} />}
-              {following ? "Following" : "Follow"}
+              {following ? "Folgst du" : "Folgen"}
             </button>
           )}
         </div>
@@ -523,7 +523,7 @@ export function Feed({
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-ink">
+      <div className="flex h-full items-center justify-center bg-canvas">
         <div className="h-10 w-10 animate-pulse rounded-2xl bg-accent/80" />
       </div>
     );
@@ -532,11 +532,11 @@ export function Feed({
   if (!games.length) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-canvas px-8 text-center">
-        <p className="font-display text-2xl font-bold text-ink">No games yet</p>
+        <p className="font-display text-2xl font-bold text-ink">Noch keine Spiele</p>
         <p className="mt-2 max-w-xs text-sm text-muted">
           {loadError
-            ? "Couldn’t load the feed. Check your connection and try again."
-            : "Create the first short game and it will show up here."}
+            ? "Feed ließ sich nicht laden. Verbindung prüfen und nochmal versuchen."
+            : "Mach den ersten Moment — dann liegt er hier."}
         </p>
       </div>
     );

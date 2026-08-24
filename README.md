@@ -1,13 +1,16 @@
 # Kairos
 
-Short playable moments — scroll bite-size games, remix with AI, publish in seconds.
+Nicht scrollen. Einen Moment spielen.
 
-## Features
+Jeden Tag ein gemeinsames Mini-Spiel (10–60 Sekunden). Sieben Momente am Tag, dann Feierabend. Kein TikTok-Feed als Start.
 
-- **Feed** — vertical snap scroll of 10–60s experiences with likes, comments, saves, views
-- **Create** — prompt-first builder, remix grid, draft/publish
-- **Profile** — created / liked / saved / history, followers, level & coins
-- **Auth** — email + password (via Supabase)
+## Oberflächen
+
+- **Website** `/` — Golden-Hour-Landing mit dem heutigen Moment
+- **App** `/play`
+  - **Heute** — täglicher Kairos, Zu-zweit-Modus, 7-Momente-Limit
+  - **Machen** — Gefühl + Dauer, dann erzeugen und veröffentlichen
+  - **Ich** — eigene Momente, Likes, Einstellungen
 
 ## Setup
 
@@ -44,16 +47,10 @@ npm run dev
 
 Open:
 
-- Chrome / Edge: [http://localhost:3000](http://localhost:3000)
-- **Firefox:** [http://127.0.0.1:3000](http://127.0.0.1:3000) (or `http://localhost:3000` — the dev server also listens on IPv6 `::1`, which Firefox prefers)
+- Chrome / Edge: [http://localhost:3000](http://localhost:3000) (Website), [http://localhost:3000/play](http://localhost:3000/play) (App)
+- **Firefox:** [http://127.0.0.1:3000](http://127.0.0.1:3000)
 
-Firefox “Verbindung fehlgeschlagen” usually means it tried IPv6 `localhost` (`::1`) and did not fall back. Use `127.0.0.1` or restart with `npm run dev`.
-
-This Cloud Agent VM’s localhost is **not** the same as localhost on your PC. On your computer, clone the repo and run `npm run dev`, or open the Cursor **preview/demo** URL in Firefox (not `localhost`).
-
-## Security note
-
-If a `service_role` key was shared in chat, **rotate it** in the Supabase dashboard (Settings → API) and update `.env.local`. Never commit service keys.
+Hintergrund und Ideen: [`research/KAIROS_ANALYSE_UND_IDEEN.md`](research/KAIROS_ANALYSE_UND_IDEEN.md)
 
 ## Stack
 

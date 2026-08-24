@@ -4,8 +4,8 @@ import { BrandMark, BrandWordmark } from "@/components/Brand";
 export default function PrivacyPage() {
   return (
     <main className="mx-auto min-h-dvh max-w-lg bg-canvas px-5 py-10 text-ink">
-      <Link href="/" className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-accent">
-        ← Back to Kairos
+      <Link href="/play" className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-accent">
+        ← Zurück zu Kairos
       </Link>
       <div className="mb-6 flex items-center gap-3">
         <BrandMark className="h-10 w-10" />

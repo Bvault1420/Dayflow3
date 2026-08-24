@@ -34,7 +34,7 @@ export type {
   FeelMods,
 } from "./types";
 
-function hash32(s: string): number {
+export function hash32(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -254,21 +254,21 @@ function feelHint(feel: FeelMods): string {
 
 function instructionFor(genre: GameGenre, lanes: 1 | 3 = 1, collectible = "loot"): string {
   if (genre === "runner" && lanes === 3) {
-    return "Tap left/right to change lanes · center to jump";
+    return "Links/rechts Spur · Mitte springen";
   }
   switch (genre) {
     case "flappy":
-      return "Tap to flap — dodge the gaps";
+      return "Tippen zum Fliegen — Lücken treffen";
     case "runner":
-      return "Tap to jump — clear the obstacles";
+      return "Tippen zum Springen";
     case "dodge":
-      return "Move left / right to dodge";
+      return "Links / rechts ausweichen";
     case "catch":
-      return `Move & catch the ${collectible}`;
+      return `${collectible} fangen`;
     case "tap":
-      return "Tap the targets before they vanish";
+      return "Ziele antippen, bevor sie weg sind";
     case "roam":
-      return `Drag to walk · tap to jump · grab ${collectible}`;
+      return `Ziehen zum Laufen · tippen · ${collectible} holen`;
   }
 }
 
