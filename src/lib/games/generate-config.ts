@@ -239,16 +239,16 @@ export function pickFeel(lower: string, genre: GameGenre, seed: number): FeelMod
 
 function feelHint(feel: FeelMods): string {
   const bits: string[] = [];
-  if (feel.hold_flap) bits.push("hold to fly");
-  if (feel.double_jump) bits.push("double jump");
-  if (feel.dash) bits.push("dash");
-  if (feel.homing) bits.push("threats chase");
-  if (feel.magnet) bits.push("magnet loot");
-  if (feel.moving_gaps) bits.push("moving gaps");
-  if (feel.bounce) bits.push("bounce");
-  if (feel.sides) bits.push("from the sides");
-  if (feel.invert) bits.push("tap flips gravity");
-  if (feel.shield) bits.push("1 shield");
+  if (feel.hold_flap) bits.push("halten zum Fliegen");
+  if (feel.double_jump) bits.push("Doppelsprung");
+  if (feel.dash) bits.push("Dash");
+  if (feel.homing) bits.push("Gefahr folgt");
+  if (feel.magnet) bits.push("Magnet");
+  if (feel.moving_gaps) bits.push("bewegte Lücken");
+  if (feel.bounce) bits.push("Bounce");
+  if (feel.sides) bits.push("von der Seite");
+  if (feel.invert) bits.push("Tipp dreht Schwerkraft");
+  if (feel.shield) bits.push("1 Schild");
   return bits.length ? ` · ${bits.slice(0, 2).join(" · ")}` : "";
 }
 
