@@ -1,9 +1,10 @@
 # Dayflow3
 
-Analyse-Workspace. Aktuelles Thema: **1inch Aqua**.
+Analyse-Workspace. Thema: **1inch Aqua / 1inch**.
 
 ## Ergebnis
 
-Vollständiger Bericht: [`research/AQUA_ANALYSIS.md`](research/AQUA_ANALYSIS.md)
+- Pass 1: [`research/AQUA_ANALYSIS.md`](research/AQUA_ANALYSIS.md)
+- Pass 2: [`research/AQUA_PASS2.md`](research/AQUA_PASS2.md)
 
-Kurz: kein neues Critical zum Abziehen fremder Maker-Gelder. Mehrere echte, nachgeprüfte Probleme in `ship`/`dock`, Docs und SDK/Kettenlisten.
+Pass 2: kein neuer, meldbarer Bounty-Fund. Der `ship`/`dock`-Fund aus Pass 1 bleibt bekannt/Audit.
