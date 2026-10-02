@@ -1,0 +1,2169 @@
+From 23f96812ea7655ba60caebcdee53153ba9e99c7a Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 05:26:03 +0000
+Subject: [PATCH 1/3] Make legal pages and the homepage readable without
+ JavaScript.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+WebPrüfer only saw the empty app shell, so Impressum, privacy policy and terms looked missing, Google Fonts were loaded from Google, and the cookie banner had no reject button. Serve those pages as real HTML, drop the external fonts, and add the security and SEO files the check looks for.
+---
+ backend/middleware/security.js          |  12 +-
+ backend/server.js                       |  13 +
+ backend/tests/publicPages.test.js       |  59 +++
+ frontend/components/CookieBanner.js     |  62 +--
+ frontend/components/Footer.js           |  19 +-
+ frontend/components/LegalCheckout.js    |   6 +-
+ frontend/components/NewsletterSignup.js |   2 +-
+ frontend/index.html                     | 118 ++++-
+ frontend/pages/agb.js                   | 125 +----
+ frontend/pages/datenschutz.js           | 122 +----
+ frontend/pages/faq.js                   |   6 +-
+ frontend/pages/impressum.js             |  56 +--
+ frontend/pages/kiRichtlinie.js          |   6 +
+ frontend/pages/widerruf.js              | 134 +-----
+ frontend/public/.well-known/ward.json   |  29 ++
+ frontend/public/robots.txt              |  25 +
+ frontend/public/sitemap.xml             |  21 +
+ frontend/public/sw.js                   |   2 +-
+ frontend/src/i18n.js                    |   4 +
+ frontend/src/legalDocuments.js          | 587 ++++++++++++++++++++++++
+ frontend/src/meta.js                    |  88 ++--
+ frontend/src/router.js                  |   1 +
+ frontend/styles/main.css                |   1 +
+ frontend/tailwind.config.js             |   4 +-
+ 24 files changed, 986 insertions(+), 516 deletions(-)
+ create mode 100644 backend/tests/publicPages.test.js
+ create mode 100644 frontend/pages/kiRichtlinie.js
+ create mode 100644 frontend/public/.well-known/ward.json
+ create mode 100644 frontend/public/robots.txt
+ create mode 100644 frontend/public/sitemap.xml
+ create mode 100644 frontend/src/legalDocuments.js
+
+diff --git a/backend/middleware/security.js b/backend/middleware/security.js
+index e908d13..02c7ac1 100644
+--- a/backend/middleware/security.js
++++ b/backend/middleware/security.js
+@@ -4,6 +4,9 @@ import hpp from 'hpp';
+ import { generalLimiter } from './rateLimiter.js';
+ import { logger } from '../utils/logger.js';
+ 
++export const PERMISSIONS_POLICY =
++  'accelerometer=(), autoplay=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()';
++
+ function getAllowedOrigins() {
+   const raw = process.env.FRONTEND_URL || 'http://127.0.0.1:5320,http://localhost:5320';
+   const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+@@ -45,8 +48,8 @@ export function applySecurityMiddleware(app) {
+         directives: {
+           defaultSrc: ["'self'"],
+           scriptSrc: ["'self'"],
+-          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+-          fontSrc: ["'self'", 'https://fonts.gstatic.com'],
++          styleSrc: ["'self'", "'unsafe-inline'"],
++          fontSrc: ["'self'"],
+           imgSrc: ["'self'", 'data:', 'https://cdn.bitrefill.com', 'https://res.cloudinary.com'],
+           connectSrc: ["'self'"],
+           frameSrc: ["'none'"],
+@@ -60,6 +63,11 @@ export function applySecurityMiddleware(app) {
+     })
+   );
+ 
++  app.use((_req, res, next) => {
++    res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
++    next();
++  });
++
+   app.use(
+     cors({
+       origin(origin, callback) {
+diff --git a/backend/server.js b/backend/server.js
+index 6e12b8d..706074d 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -17,6 +17,7 @@ import { validateApiKeyAtStartup } from './services/bitrefillService.js';
+ import { migrateOrderAccessTokens } from './storage/store.js';
+ import { migrateJsonToSqliteIfNeeded } from './storage/migrate-from-json.js';
+ import { initMonitoring } from './utils/monitoring.js';
++import { LEGAL_SLUGS, renderLegalDocumentHtml } from '../frontend/src/legalDocuments.js';
+ 
+ initMonitoring();
+ 
+@@ -35,6 +36,18 @@ app.use(cookieParser(process.env.CSRF_SECRET));
+ 
+ app.use('/api', apiRoutes);
+ 
++for (const slug of LEGAL_SLUGS) {
++  app.get(`/${slug}`, (_req, res) => {
++    res.set('Cache-Control', 'public, max-age=3600');
++    res.type('html').send(renderLegalDocumentHtml(slug));
++  });
++}
++
++app.get('/.well-known/ward.json', (_req, res) => {
++  res.type('application/json');
++  res.sendFile(path.resolve(__dirname, '../frontend/public/.well-known/ward.json'));
++});
++
+ if (isProd) {
+   const frontendDist = path.resolve(__dirname, '../frontend/dist');
+   app.use(express.static(frontendDist, { maxAge: '1d', index: false }));
+diff --git a/backend/tests/publicPages.test.js b/backend/tests/publicPages.test.js
+new file mode 100644
+index 0000000..0eff131
+--- /dev/null
++++ b/backend/tests/publicPages.test.js
+@@ -0,0 +1,59 @@
++import { test, describe } from 'node:test';
++import assert from 'node:assert/strict';
++import fs from 'fs';
++import path from 'path';
++import { fileURLToPath } from 'url';
++import { LEGAL_SLUGS, renderLegalDocumentHtml } from '../../frontend/src/legalDocuments.js';
++import { PERMISSIONS_POLICY } from '../middleware/security.js';
++
++const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
++
++describe('crawlable public pages', () => {
++  test('legal routes render real headings and no retired ODR link', () => {
++    for (const slug of LEGAL_SLUGS) {
++      const html = renderLegalDocumentHtml(slug);
++      assert.equal(typeof html, 'string');
++      assert.match(html, /<h1>/);
++      assert.match(html, /lang="de"/);
++      assert.match(html, new RegExp(`href="/${slug}"`));
++      assert.doesNotMatch(html, /consumers\/odr/i);
++      assert.doesNotMatch(html, /fonts\.googleapis\.com/);
++    }
++    assert.match(renderLegalDocumentHtml('impressum'), /Impressum/);
++    assert.match(renderLegalDocumentHtml('datenschutz'), /Datenschutzerklärung/);
++    assert.match(renderLegalDocumentHtml('agb'), /Allgemeine Geschäftsbedingungen/);
++    assert.match(renderLegalDocumentHtml('widerruf'), /Widerrufsbelehrung/);
++    assert.match(renderLegalDocumentHtml('ki-richtlinie'), /KI-Richtlinie/);
++  });
++
++  test('homepage shell is crawlable without Google Fonts', () => {
++    const html = fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8');
++    assert.match(html, /<h1>/);
++    assert.match(html, /href="\/impressum"/);
++    assert.match(html, /href="\/datenschutz"/);
++    assert.match(html, /href="\/agb"/);
++    assert.match(html, /id="cookie-reject"/);
++    assert.match(html, /id="cookie-accept"/);
++    assert.match(html, /property="og:title"/);
++    assert.match(html, /rel="canonical"/);
++    assert.match(html, /application\/ld\+json/);
++    assert.match(html, /Zum Inhalt springen/);
++    assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
++  });
++
++  test('permissions policy disables unused sensors', () => {
++    assert.match(PERMISSIONS_POLICY, /camera=\(\)/);
++    assert.match(PERMISSIONS_POLICY, /microphone=\(\)/);
++    assert.match(PERMISSIONS_POLICY, /geolocation=\(\)/);
++  });
++
++  test('robots, sitemap and WARD policy exist', () => {
++    const robots = fs.readFileSync(path.join(root, 'frontend/public/robots.txt'), 'utf8');
++    const sitemap = fs.readFileSync(path.join(root, 'frontend/public/sitemap.xml'), 'utf8');
++    const ward = JSON.parse(fs.readFileSync(path.join(root, 'frontend/public/.well-known/ward.json'), 'utf8'));
++    assert.match(robots, /Sitemap:/);
++    assert.match(sitemap, /impressum/);
++    assert.equal(ward.version, '1.0');
++    assert.equal(ward.default.training, false);
++  });
++});
+diff --git a/frontend/components/CookieBanner.js b/frontend/components/CookieBanner.js
+index 68569bb..ea51c2e 100644
+--- a/frontend/components/CookieBanner.js
++++ b/frontend/components/CookieBanner.js
+@@ -6,49 +6,57 @@ function renderBannerHtml() {
+   return `
+     <p class="text-sm text-content-muted">
+       ${t('cookie.text')}
+-      <a href="#/datenschutz" data-nav="/datenschutz" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${t('nav.privacyLong')}</a>.
++      <a href="/datenschutz" data-nav="/datenschutz" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${t('nav.privacyLong')}</a>.
+     </p>
+     <div class="mt-3 flex flex-wrap gap-2">
++      <button type="button" id="cookie-reject" class="btn-primary px-4 py-2 text-xs">${t('cookie.reject')}</button>
+       <button type="button" id="cookie-accept" class="btn-primary px-4 py-2 text-xs">${t('cookie.accept')}</button>
+-      <a href="#/datenschutz" data-nav="/datenschutz" class="btn-secondary px-4 py-2 text-xs">${t('cookie.more')}</a>
+     </div>`;
+ }
+ 
++function dismiss(banner, value) {
++  try {
++    localStorage.setItem(STORAGE_KEY, value);
++  } catch {
++    /* ignore */
++  }
++  banner.remove();
++}
++
++function bindBanner(banner) {
++  banner.querySelector('#cookie-accept')?.addEventListener('click', () => dismiss(banner, 'accepted'));
++  banner.querySelector('#cookie-reject')?.addEventListener('click', () => dismiss(banner, 'rejected'));
++}
++
+ export function initCookieBanner() {
++  const existing = document.getElementById('cookie-banner');
+   try {
+-    if (localStorage.getItem(STORAGE_KEY)) return;
++    if (localStorage.getItem(STORAGE_KEY)) {
++      existing?.remove();
++      return;
++    }
+   } catch {
++    existing?.remove();
+     return;
+   }
+ 
+-  const banner = document.createElement('div');
+-  banner.id = 'cookie-banner';
++  let banner = existing;
++  if (!banner) {
++    banner = document.createElement('div');
++    banner.id = 'cookie-banner';
++    banner.setAttribute('role', 'dialog');
++    banner.setAttribute('aria-label', 'Cookies');
++    document.body.appendChild(banner);
++  }
+   banner.className =
+     'fixed bottom-20 left-4 right-4 z-[60] mx-auto max-w-2xl rounded-xl border border-theme bg-surface-elevated p-4 shadow-md sm:bottom-6 lg:left-auto lg:right-6';
+   banner.innerHTML = renderBannerHtml();
+-
+-  document.body.appendChild(banner);
+-
+-  document.getElementById('cookie-accept')?.addEventListener('click', () => {
+-    try {
+-      localStorage.setItem(STORAGE_KEY, '1');
+-    } catch {
+-      /* ignore */
+-    }
+-    banner.remove();
+-  });
++  bindBanner(banner);
+ 
+   window.addEventListener('Kryptogutscheine:lang-change', () => {
+-    const existing = document.getElementById('cookie-banner');
+-    if (!existing) return;
+-    existing.innerHTML = renderBannerHtml();
+-    existing.querySelector('#cookie-accept')?.addEventListener('click', () => {
+-      try {
+-        localStorage.setItem(STORAGE_KEY, '1');
+-      } catch {
+-        /* ignore */
+-      }
+-      existing.remove();
+-    });
++    const current = document.getElementById('cookie-banner');
++    if (!current) return;
++    current.innerHTML = renderBannerHtml();
++    bindBanner(current);
+   });
+ }
+diff --git a/frontend/components/Footer.js b/frontend/components/Footer.js
+index 27aad79..0009468 100644
+--- a/frontend/components/Footer.js
++++ b/frontend/components/Footer.js
+@@ -15,7 +15,7 @@ export function renderFooter() {
+             <div class="flex items-center gap-3">
+               <span class="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-600 text-sm font-bold text-white shadow-sm shadow-brand-600/20">K</span>
+               <div>
+-                <h3 class="text-base font-bold tracking-tight text-content">Kryptogutscheine</h3>
++                <p class="text-base font-bold tracking-tight text-content">Kryptogutscheine</p>
+                 <p class="text-xs text-content-muted">Schnell. Klar. Ohne Schnickschnack.</p>
+               </div>
+             </div>
+@@ -28,7 +28,7 @@ export function renderFooter() {
+             </p>
+           </div>
+           <div>
+-            <h4 class="text-sm font-semibold text-content">${t('footer.navigation')}</h4>
++            <p class="text-sm font-semibold text-content">${t('footer.navigation')}</p>
+             <ul class="mt-3 space-y-2 text-sm text-content-muted">
+               <li><a href="#/" data-nav="/" class="transition-colors hover:text-brand-600">${t('nav.home')}</a></li>
+               <li><a href="#/shop" data-nav="/shop" class="transition-colors hover:text-brand-600">${t('nav.shop')}</a></li>
+@@ -38,16 +38,17 @@ export function renderFooter() {
+             </ul>
+           </div>
+           <div>
+-            <h4 class="text-sm font-semibold text-content">${t('nav.legal')}</h4>
++            <p class="text-sm font-semibold text-content">${t('nav.legal')}</p>
+             <ul class="mt-3 space-y-2 text-sm text-content-muted">
+-              <li><a href="#/impressum" data-nav="/impressum" class="transition-colors hover:text-brand-600">${t('nav.impressum')}</a></li>
+-              <li><a href="#/agb" data-nav="/agb" class="transition-colors hover:text-brand-600">${t('nav.agb')}</a></li>
+-              <li><a href="#/widerruf" data-nav="/widerruf" class="transition-colors hover:text-brand-600">${t('nav.widerruf')}</a></li>
+-              <li><a href="#/datenschutz" data-nav="/datenschutz" class="transition-colors hover:text-brand-600">${t('nav.privacy')}</a></li>
++              <li><a href="/impressum" data-nav="/impressum" class="transition-colors hover:text-brand-600">${t('nav.impressum')}</a></li>
++              <li><a href="/agb" data-nav="/agb" class="transition-colors hover:text-brand-600">${t('nav.agb')}</a></li>
++              <li><a href="/widerruf" data-nav="/widerruf" class="transition-colors hover:text-brand-600">${t('nav.widerruf')}</a></li>
++              <li><a href="/datenschutz" data-nav="/datenschutz" class="transition-colors hover:text-brand-600">${t('nav.privacy')}</a></li>
++              <li><a href="/ki-richtlinie" data-nav="/ki-richtlinie" class="transition-colors hover:text-brand-600">${t('nav.aiPolicy')}</a></li>
+             </ul>
+           </div>
+           <div>
+-            <h4 class="text-sm font-semibold text-content">${t('nav.security')}</h4>
++            <p class="text-sm font-semibold text-content">${t('nav.security')}</p>
+             <ul class="mt-3 space-y-2 text-sm text-content-muted">
+               <li>${t('footer.noCustody')}</li>
+               <li>${t('footer.noWallet')}</li>
+@@ -58,7 +59,7 @@ export function renderFooter() {
+         </div>
+ 
+         <div class="mt-10 border-t border-theme py-6 text-center text-xs text-content-muted">
+-          <p>${t('footer.accept')} <a href="#/agb" data-nav="/agb" class="hover:text-brand-600">${t('nav.agb')}</a> ${t('footer.and')} <a href="#/datenschutz" data-nav="/datenschutz" class="hover:text-brand-600">${t('nav.privacyLong')}</a>.</p>
++          <p>${t('footer.accept')} <a href="/agb" data-nav="/agb" class="hover:text-brand-600">${t('nav.agb')}</a> ${t('footer.and')} <a href="/datenschutz" data-nav="/datenschutz" class="hover:text-brand-600">${t('nav.privacyLong')}</a>.</p>
+           <p class="mt-2">&copy; ${year} Kryptogutscheine · kryptogutscheine.com</p>
+           <p class="mt-1">${t('footer.rights')}</p>
+         </div>
+diff --git a/frontend/components/LegalCheckout.js b/frontend/components/LegalCheckout.js
+index 384939d..8270994 100644
+--- a/frontend/components/LegalCheckout.js
++++ b/frontend/components/LegalCheckout.js
+@@ -4,11 +4,11 @@ import { getOrderHistory } from '../src/userData.js';
+ 
+ export function renderCheckoutLegalCheckboxes() {
+   const isEn = getLang() === 'en';
+-  const agbLink = `<a href="#/agb" data-nav="/agb" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${isEn ? 'Terms of Service' : 'AGB'}</a>`;
+-  const privacyLink = `<a href="#/datenschutz" data-nav="/datenschutz" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${isEn ? 'Privacy Policy' : 'Datenschutzerklärung'}</a>`;
++  const agbLink = `<a href="/agb" data-nav="/agb" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${isEn ? 'Terms of Service' : 'AGB'}</a>`;
++  const privacyLink = `<a href="/datenschutz" data-nav="/datenschutz" class="font-medium text-brand-600 hover:underline dark:text-brand-400">${isEn ? 'Privacy Policy' : 'Datenschutzerklärung'}</a>`;
+   const widerrufLink = isEn
+     ? ''
+-    : ` (<a href="#/widerruf" data-nav="/widerruf" class="font-medium text-brand-600 hover:underline dark:text-brand-400">Widerrufsbelehrung</a>)`;
++    : ` (<a href="/widerruf" data-nav="/widerruf" class="font-medium text-brand-600 hover:underline dark:text-brand-400">Widerrufsbelehrung</a>)`;
+ 
+   return `
+     <div class="mt-4 space-y-3 rounded-xl border border-theme bg-surface p-4 text-xs leading-relaxed text-content-muted">
+diff --git a/frontend/components/NewsletterSignup.js b/frontend/components/NewsletterSignup.js
+index 332d9e8..c9f1f68 100644
+--- a/frontend/components/NewsletterSignup.js
++++ b/frontend/components/NewsletterSignup.js
+@@ -16,7 +16,7 @@ export function renderNewsletterSignup() {
+             <input type="checkbox" id="newsletter-consent" class="mt-0.5 shrink-0 rounded border-theme" required />
+             <span>
+               Ich willige ein, Deal-E-Mails zu erhalten, und habe die
+-              <a href="#/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline dark:text-brand-400">Datenschutzerklärung</a>
++              <a href="/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline dark:text-brand-400">Datenschutzerklärung</a>
+               gelesen. Abmeldung jederzeit möglich.
+             </span>
+           </label>
+diff --git a/frontend/index.html b/frontend/index.html
+index 8387039..b7f5caa 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -6,6 +6,9 @@
+         try {
+           var t = localStorage.getItem('Kryptogutscheine-theme') || localStorage.getItem('redeemx-theme');
+           if (t !== 'light') document.documentElement.classList.add('dark');
++          if (localStorage.getItem('Kryptogutscheine_cookie_consent')) {
++            document.documentElement.classList.add('cookie-ok');
++          }
+         } catch (e) {
+           document.documentElement.classList.add('dark');
+         }
+@@ -13,17 +16,122 @@
+     </script>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>Kryptogutscheine – Digitale Gutscheine mit Krypto</title>
+     <meta name="description" content="Kryptogutscheine – Digitale Gutscheine mit Kryptowährung kaufen. Vermittlung über Bitrefill. Keine Finanzdienstleistung, keine Gelderverwahrung." />
+     <meta name="theme-color" content="#0d9488" />
+-    <link rel="preconnect" href="https://fonts.googleapis.com" />
+-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
++    <link rel="canonical" href="https://kryptogutscheine.onrender.com/" />
++    <meta property="og:title" content="Kryptogutscheine – Digitale Gutscheine mit Krypto" />
++    <meta property="og:description" content="Digitale Gutscheine mit Kryptowährung kaufen. Vermittlung über Bitrefill, ohne Verwahrung von Geldern." />
++    <meta property="og:type" content="website" />
++    <meta property="og:url" content="https://kryptogutscheine.onrender.com/" />
++    <meta property="og:locale" content="de_DE" />
++    <meta property="og:site_name" content="Kryptogutscheine" />
++    <meta property="og:image" content="https://kryptogutscheine.onrender.com/icons/icon.svg" />
++    <meta name="twitter:card" content="summary" />
++    <meta name="twitter:title" content="Kryptogutscheine – Digitale Gutscheine mit Krypto" />
++    <meta name="twitter:description" content="Digitale Gutscheine mit Kryptowährung kaufen. Vermittlung über Bitrefill." />
+     <link rel="manifest" href="/manifest.json" />
+     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+-    <title>Kryptogutscheine – Digitale Gutscheine mit Krypto</title>
++    <script type="application/ld+json">
++      {
++        "@context": "https://schema.org",
++        "@type": "WebSite",
++        "name": "Kryptogutscheine",
++        "url": "https://kryptogutscheine.onrender.com/",
++        "inLanguage": "de",
++        "description": "Vermittlungsplattform für digitale Gutscheine. Zahlung und Lieferung über Bitrefill."
++      }
++    </script>
++    <style>
++      .skip-link {
++        position: absolute;
++        left: 1rem;
++        top: -4rem;
++        z-index: 100;
++        background: #0f766e;
++        color: #fff;
++        padding: 0.5rem 0.8rem;
++        border-radius: 0.5rem;
++      }
++      .skip-link:focus { top: 1rem; }
++      html.cookie-ok #cookie-banner { display: none; }
++      #cookie-banner {
++        position: fixed;
++        left: 1rem;
++        right: 1rem;
++        bottom: 1rem;
++        z-index: 60;
++        max-width: 42rem;
++        margin: 0 auto;
++        padding: 1rem;
++        border: 1px solid #e6ebf2;
++        border-radius: 12px;
++        background: #fff;
++        color: #0b1220;
++        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
++      }
++      #cookie-banner .cookie-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
++      #cookie-accept, #cookie-reject {
++        font: inherit;
++        font-size: 0.75rem;
++        font-weight: 600;
++        padding: 0.5rem 1rem;
++        border-radius: 0.5rem;
++        border: 0;
++        background: #0d9488;
++        color: #fff;
++        cursor: pointer;
++      }
++      @media (prefers-reduced-motion: reduce) {
++        * { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
++      }
++    </style>
+   </head>
+   <body class="bg-surface text-content antialiased transition-colors duration-300">
+-    <div id="app"></div>
++    <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
++    <div id="app">
++      <header>
++        <a href="/">Kryptogutscheine</a>
++        <nav aria-label="Hauptnavigation">
++          <a href="/#/shop">Shop</a>
++          <a href="/#/faq">FAQ</a>
++          <a href="/impressum">Impressum</a>
++          <a href="/datenschutz">Datenschutzerklärung</a>
++          <a href="/agb">AGB</a>
++          <a href="/widerruf">Widerrufsbelehrung</a>
++          <a href="/ki-richtlinie">KI-Richtlinie</a>
++        </nav>
++      </header>
++      <main id="main-content">
++        <h1>Digitale Gutscheine mit Kryptowährung kaufen</h1>
++        <p>Kryptogutscheine vermittelt Gutscheine bekannter Marken. Zahlung und Lieferung laufen direkt über Bitrefill. Kryptogutscheine verwahrt keine Gelder.</p>
++        <h2>So funktioniert es</h2>
++        <ol>
++          <li>Gutschein auswählen</li>
++          <li>Mit Kryptowährung direkt an Bitrefill zahlen</li>
++          <li>Code nach Zahlungsbestätigung digital erhalten</li>
++        </ol>
++      </main>
++      <footer>
++        <nav aria-label="Rechtliches">
++          <h2>Rechtliches</h2>
++          <ul>
++            <li><a href="/impressum">Impressum</a></li>
++            <li><a href="/datenschutz">Datenschutzerklärung</a></li>
++            <li><a href="/agb">AGB</a></li>
++            <li><a href="/widerruf">Widerrufsbelehrung</a></li>
++            <li><a href="/ki-richtlinie">KI-Richtlinie</a></li>
++          </ul>
++        </nav>
++      </footer>
++    </div>
++    <div id="cookie-banner" role="dialog" aria-label="Cookies">
++      <p>Wir verwenden nur technisch notwendige Cookies (CSRF-Schutz) und speichern keine Tracking-Daten. Details in unserer <a href="/datenschutz">Datenschutzerklärung</a>.</p>
++      <div class="cookie-actions">
++        <button type="button" id="cookie-reject">Ablehnen</button>
++        <button type="button" id="cookie-accept">Verstanden</button>
++      </div>
++    </div>
+     <script type="module" src="/src/main.js"></script>
+   </body>
+ </html>
+diff --git a/frontend/pages/agb.js b/frontend/pages/agb.js
+index 335bf4f..6a04cfc 100644
+--- a/frontend/pages/agb.js
++++ b/frontend/pages/agb.js
+@@ -1,127 +1,6 @@
+ ﻿import { renderLegalPage } from '../components/LegalLayout.js';
+-import { LEGAL, LEGAL_LAST_UPDATED } from '../src/legalConfig.js';
++import { getLegalPage } from '../src/legalDocuments.js';
+ 
+ export async function renderAgb(container) {
+-  const L = LEGAL;
+-  container.innerHTML = renderLegalPage({
+-    title: 'Allgemeine Geschäftsbedingungen (AGB)',
+-    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
+-    notice: `<strong>Wichtig:</strong> Kryptogutscheine ist eine reine <strong>Gutschein-Vermittlungsplattform</strong>. Wir erbringen <strong>keine Finanzdienstleistung</strong>, betreiben keine Wallet, verwahren keine Gelder und sind nicht Zahlungsdienstleister. Vertrag über Gutschein und Zahlung kommt mit dem externen Anbieter (Bitrefill) zustande.`,
+-    sections: [
+-      {
+-        title: '§ 1 Geltungsbereich und Vertragspartner',
+-        body: `
+-          <p>(1) Diese Allgemeinen Geschäftsbedingungen gelten für die Nutzung der Website und Plattform Kryptogutscheine unter der Domain <strong>kryptogutscheine.com</strong>.</p>
+-          <p class="mt-3">(2) Anbieter und Betreiber ist:</p>
+-          <p class="mt-2"><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>
+-          <p class="mt-3">(3) Kryptogutscheine richtet sich an Verbraucher und Unternehmer, sofern nicht ausdrücklich anders gekennzeichnet.</p>`,
+-      },
+-      {
+-        title: '§ 2 Art der Leistung – reine Vermittlung',
+-        body: `
+-          <p>(1) Kryptogutscheine stellt eine technische Oberfläche zur Verfügung, über die Nutzer digitale Gutscheine auswählen und Bestellungen anstoßen können.</p>
+-          <p class="mt-3">(2) Kryptogutscheine <strong>verkauft keine Gutscheine im eigenen Namen</strong>, sondern vermittelt den Zugang zu Produkten und Zahlungsabwicklung des externen Partners <strong>Bitrefill</strong> (Bitrefill Pte. Ltd. bzw. jeweiliger Rechtsträger).</p>
+-          <p class="mt-3">(3) Kryptogutscheine erbringt <strong>keine Finanzdienstleistung</strong> im Sinne des Kreditwesengesetzes (KWG), keine Zahlungsdienste im Sinne des Zahlungsdiensteaufsichtsgesetzes (ZAG), keine Kryptoverwahrung und keine Anlageberatung.</p>
+-          <p class="mt-3">(4) Kryptowährungs-Zahlungen werden <strong>direkt an Bitrefill</strong> bzw. dessen Zahlungsinfrastruktur geleistet. Kryptogutscheine erhält, speichert oder kontrolliert keine privaten Schlüssel, Seeds oder Wallet-Guthaben der Nutzer.</p>
+-          <p class="mt-3">(5) Kryptogutscheine ist nicht Herausgeber, Verkäufer oder Garantiegeber der angezeigten Gutscheine. Herausgeber und Einlösestellen sind die jeweiligen Marken bzw. Händler.</p>`,
+-      },
+-      {
+-        title: '§ 3 Vertragsschluss und Bestellablauf',
+-        body: `
+-          <p>(1) Die Darstellung von Produkten auf Kryptogutscheine stellt kein rechtlich bindendes Angebot dar, sondern eine unverbindliche Aufforderung zur Bestellung.</p>
+-          <p class="mt-3">(2) Mit Klick auf „Zahlung starten“ und Bestätigung im Checkout gibt der Nutzer eine verbindliche Bestellung ab. Die Annahme und Erfüllung erfolgt durch Bitrefill als Leistungserbringer.</p>
+-          <p class="mt-3">(3) Der Nutzer bestätigt vor Abschluss, die <a href="#/agb" data-nav="/agb" class="text-brand-600 hover:underline">AGB</a>, die <a href="#/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline">Datenschutzerklärung</a> und die <a href="#/widerruf" data-nav="/widerruf" class="text-brand-600 hover:underline">Widerrufsbelehrung</a> gelesen zu haben und akzeptiert diese.</p>
+-          <p class="mt-3">(4) Kryptogutscheine kann Bestellungen technisch ablehnen, wenn API-Dienste nicht verfügbar sind, Sicherheitsprüfungen fehlschlagen oder Missbrauch vorliegt.</p>`,
+-      },
+-      {
+-        title: '§ 4 Produktangebot – kuratierter Katalog',
+-        body: `
+-          <p>(1) Kryptogutscheine bietet ausschließlich einen <strong>manuell kuratierten Katalog</strong> digitaler Marken-Gutscheine an (z.&nbsp;B. Shopping, Gaming, Streaming, Gastronomie). Es werden bewusst <strong>keine</strong> eSIMs, Handy-Aufladungen, Prepaid-Zahlungskarten, Glücksspiel-, Dating-, Adult-, Geldtransfer- oder vergleichbar heikle Produkte angeboten.</p>
+-          <p class="mt-3">(2) Der Katalog wird regelmäßig geprüft. Produkte können jederzeit ohne Vorankündigung entfernt oder ergänzt werden, wenn rechtliche, technische oder sicherheitsrelevante Gründe dies erfordern.</p>
+-          <p class="mt-3">(3) Die Darstellung eines Produkts begründet keine Garantie für dauerhafte Verfügbarkeit, Einlösbarkeit in allen Regionen oder bestimmte Krypto-Zahlungsmethoden.</p>
+-          <p class="mt-3">(4) Der Nutzer ist verpflichtet, vor Bestellung Produktwert, Land, Währung, Einlösebedingungen, Ablaufdatum, regionale Beschränkungen und sonstige Bedingungen des Gutschein-Herausgebers selbst zu prüfen.</p>
+-          <p class="mt-3">(5) Produktbilder, Logos und Markennamen dienen ausschließlich der Identifikation. Alle Markenrechte liegen bei den jeweiligen Rechteinhabern.</p>`,
+-      },
+-      {
+-        title: '§ 5 Preise, Verfügbarkeit und Produktinformationen',
+-        body: `
+-          <p>(1) Alle Preise, Verfügbarkeiten und Produktbeschreibungen stammen vom externen Anbieter Bitrefill und können sich jederzeit ändern.</p>
+-          <p class="mt-3">(2) Kryptogutscheine übernimmt keine Gewähr dafür, dass ein angezeigtes Produkt zum Zeitpunkt der Bestellung verfügbar, in einem bestimmten Land einlösbar oder zu einem bestimmten Kurs erhältlich ist.</p>
+-          <p class="mt-3">(3) Krypto-Beträge vor Rechnungserstellung sind Schätzungen. Der verbindliche Zahlungsbetrag ergibt sich aus der von Bitrefill erstellten Rechnung.</p>`,
+-      },
+-      {
+-        title: '§ 6 Kryptowährungen – besondere Risiken',
+-        body: `
+-          <p>(1) Zahlungen mit Kryptowährungen sind in der Regel <strong>unwiderruflich</strong>. Fehlüberweisungen (falsches Netzwerk, falscher Token, falscher Betrag, falsche Adresse) können zum <strong>vollständigen Verlust</strong> des eingesetzten Betrags führen.</p>
+-          <p class="mt-3">(2) Der Nutzer ist allein dafür verantwortlich, die richtige Kryptowährung, das richtige Netzwerk (z.&nbsp;B. Polygon, Ethereum, Tron) und den exakten Betrag zu verwenden.</p>
+-          <p class="mt-3">(3) Kryptogutscheine haftet nicht für Kursschwankungen, Netzwerkgebühren, Verzögerungen der Blockchain, Wallet-Fehler oder Nutzerfehler bei der Zahlung.</p>
+-          <p class="mt-3">(4) Nach Ablauf der Zahlungsfrist muss eine neue Rechnung erstellt werden. Bereits gesendete Zahlungen an abgelaufene Rechnungen können nicht garantiert zugeordnet werden.</p>
+-          <p class="mt-3">(5) Kryptogutscheine schuldet keine Rückabwicklung von Blockchain-Transaktionen und kann verlorene, falsch gesendete oder an Dritte gezahlte Kryptowährungen nicht wiederbeschaffen.</p>`,
+-      },
+-      {
+-        title: '§ 7 Lieferung digitaler Gutscheine',
+-        body: `
+-          <p>(1) Digitale Gutscheincodes werden nach Zahlungsbestätigung durch Bitrefill bereitgestellt und auf der Bestellstatus-Seite angezeigt.</p>
+-          <p class="mt-3">(2) Der Nutzer ist verpflichtet, Gutscheincodes sicher zu speichern. Kryptogutscheine speichert keine dauerhaften Nutzerkonten; verlorene Codes können nach Browser-Löschung ggf. nicht wiederhergestellt werden.</p>
+-          <p class="mt-3">(3) Einlösungsbedingungen, Gültigkeitsdauer und regionale Beschränkungen richten sich nach dem jeweiligen Gutschein-Anbieter (z.&nbsp;B. Amazon, Steam).</p>
+-          <p class="mt-3">(4) Gutscheincodes gelten nach Bereitstellung grundsätzlich als geliefert. Eine Rücknahme ist in der Regel ausgeschlossen, sofern nicht zwingendes Recht etwas anderes bestimmt.</p>`,
+-      },
+-      {
+-        title: '§ 8 Fehlgeschlagene Bestellungen – Haftungsausschluss',
+-        body: `
+-          <p>(1) Kryptogutscheine haftet <strong>nicht</strong> für Störungen, Ausfälle oder Fehler des externen Anbieters Bitrefill, von Blockchain-Netzwerken, Wallet-Software oder Drittanbieter-Infrastruktur.</p>
+-          <p class="mt-3">(2) Insbesondere übernimmt Kryptogutscheine keine Verantwortung bei:</p>
+-          <ul class="mt-2 list-inside list-disc space-y-1">
+-            <li>fehlgeschlagener oder verspäteter Gutschein-Lieferung durch Bitrefill,</li>
+-            <li>abgelehnten oder nicht verfügbaren Produkten,</li>
+-            <li>fehlerhaften Gutscheincodes,</li>
+-            <li>nicht akzeptierten Krypto-Zahlungen,</li>
+-            <li>technischen API-Fehlern oder Wartungsarbeiten,</li>
+-            <li>Missbrauch oder Sperrung durch den Gutschein-Herausgeber.</li>
+-          </ul>
+-          <p class="mt-3">(3) Ansprüche aus dem Kaufvertrag über den Gutschein sind gegenüber dem Leistungserbringer Bitrefill geltend zu machen. Kryptogutscheine unterstützt nach Möglichkeit bei der Kommunikation, ist aber nicht verpflichtet und nicht haftbar für deren Entscheidungen.</p>
+-          <p class="mt-3">(4) Kryptogutscheine kann freiwillig Support leisten, ohne dadurch Vertragspartner der Gutschein-Lieferung oder Erstattungsschuldner zu werden.</p>
+-          <p class="mt-3">(5) Support-Anfragen können an ${L.supportEmail} gerichtet werden. Eine Erfolgsgarantie wird nicht gegeben.</p>`,
+-      },
+-      {
+-        title: '§ 9 Gewährleistung und Haftungsbeschränkung',
+-        body: `
+-          <p>(1) Kryptogutscheine haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit sowie bei Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit.</p>
+-          <p class="mt-3">(2) Bei leichter Fahrlässigkeit haftet Kryptogutscheine nur bei Verletzung wesentlicher Vertragspflichten (Kardinalpflichten), beschränkt auf den vorhersehbaren, vertragstypischen Schaden.</p>
+-          <p class="mt-3">(3) Im Übrigen ist die Haftung von Kryptogutscheine – soweit gesetzlich zulässig – <strong>ausgeschlossen</strong>. Dies gilt insbesondere für mittelbare Schäden, entgangenen Gewinn, Datenverlust und Folgeschäden aus Krypto-Transaktionen.</p>
+-          <p class="mt-3">(4) Die Haftung für Inhalte, Dienste, Produkte, Verfügbarkeiten und Entscheidungen Dritter ist ausgeschlossen, soweit Kryptogutscheine diese nicht selbst zu vertreten hat.</p>
+-          <p class="mt-3">(5) Zwingende gesetzliche Haftungsansprüche (z.&nbsp;B. nach dem Produkthaftungsgesetz) bleiben unberührt.</p>`,
+-      },
+-      {
+-        title: '§ 10 Nutzungsrechte und Pflichten des Nutzers',
+-        body: `
+-          <p>(1) Der Nutzer darf Kryptogutscheine nur rechtmäßig und im Rahmen dieser AGB nutzen.</p>
+-          <p class="mt-3">(2) Missbrauch (z.&nbsp;B. automatisierte Angriffe, Umgehung von Sicherheitsmechanismen, betrügerische Bestellungen) kann zur Sperrung des Zugangs führen.</p>
+-          <p class="mt-3">(3) Der Nutzer versichert, berechtigt zu sein, die gewählte Zahlungsmethode zu nutzen und geltendes Recht einzuhalten.</p>
+-          <p class="mt-3">(4) Die Nutzung von Kryptogutscheine für rechtswidrige Zwecke, Geldwäsche, Sanktionsumgehung, Betrug, Terrorismusfinanzierung oder sonstige missbräuchliche Zwecke ist untersagt.</p>
+-          <p class="mt-3">(5) Kryptogutscheine kann Bestellungen ablehnen, abbrechen oder den Zugang beschränken, wenn der Verdacht auf Missbrauch, Rechtsverstöße, technische Angriffe oder ungewöhnliche Nutzung besteht.</p>
+-          <p class="mt-3">(6) Der Nutzer ist selbst dafür verantwortlich, ob Erwerb, Besitz, Einlösung oder Weitergabe eines Gutscheins in seinem Land zulässig ist.</p>`,
+-      },
+-      {
+-        title: '§ 11 Altersbeschränkung',
+-        body: `
+-          <p>(1) Kryptogutscheine richtet sich ausschließlich an Personen ab 18 Jahren.</p>
+-          <p class="mt-3">(2) Minderjährige dürfen Kryptogutscheine nicht nutzen. Mit Nutzung der Plattform bestätigt der Nutzer, volljährig und unbeschränkt geschäftsfähig zu sein.</p>`,
+-      },
+-      {
+-        title: '§ 12 Streitbeilegung und anwendbares Recht',
+-        body: `
+-          <p>(1) Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts, soweit dem keine zwingenden Verbraucherschutzvorschriften des Wohnsitzstaates des Verbrauchers entgegenstehen.</p>
+-          <p class="mt-3">(2) Die EU-Kommission stellt eine Plattform zur Online-Streitbeilegung bereit: <a href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener noreferrer" class="text-brand-600 hover:underline">https://ec.europa.eu/consumers/odr/</a>. Wir sind nicht verpflichtet und nicht bereit, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.</p>`,
+-      },
+-      {
+-        title: '§ 13 Salvatorische Klausel und Änderungen',
+-        body: `
+-          <p>(1) Sollten einzelne Bestimmungen unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.</p>
+-          <p class="mt-3">(2) Kryptogutscheine kann diese AGB mit Wirkung für die Zukunft anpassen. Die jeweils aktuelle Version ist auf der Website abrufbar.</p>`,
+-      },
+-    ],
+-    footerNote:
+-      'Diese AGB sind eine Vorlage und ersetzen keine individuelle Rechtsberatung. Bitte vor Veröffentlichung prüfen lassen und alle Platzhalter in legalConfig.js mit den echten Betreiberangaben ausfüllen.',
+-  });
++  container.innerHTML = renderLegalPage(getLegalPage('agb'));
+ }
+diff --git a/frontend/pages/datenschutz.js b/frontend/pages/datenschutz.js
+index 38c9acc..e267d75 100644
+--- a/frontend/pages/datenschutz.js
++++ b/frontend/pages/datenschutz.js
+@@ -1,124 +1,6 @@
+ ﻿import { renderLegalPage } from '../components/LegalLayout.js';
+-import { LEGAL, LEGAL_LAST_UPDATED } from '../src/legalConfig.js';
++import { getLegalPage } from '../src/legalDocuments.js';
+ 
+ export async function renderDatenschutz(container) {
+-  const L = LEGAL;
+-  container.innerHTML = renderLegalPage({
+-    title: 'Datenschutzerklärung',
+-    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
+-    notice: `<strong>Transparenz:</strong> Kryptogutscheine erhebt nur die Daten, die für den Betrieb der Plattform technisch erforderlich sind. Es werden keine Nutzerkonten geführt und keine Zahlungsdaten gespeichert.`,
+-    sections: [
+-      {
+-        title: '1. Verantwortlicher',
+-        body: `<p><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>`,
+-      },
+-      {
+-        title: '2. Grundsätze der Datenverarbeitung',
+-        body: `
+-          <p>Kryptogutscheine wurde nach dem Prinzip „Privacy by Design" entwickelt. Wir verarbeiten personenbezogene Daten nur, soweit dies zur Bereitstellung der Website, zur Abwicklung von Bestellungen über externe Partner oder aufgrund gesetzlicher Pflichten erforderlich ist.</p>
+-          <p class="mt-3">Kryptogutscheine erbringt <strong>keine Finanzdienstleistung</strong>, führt <strong>kein Nutzertracking</strong> zu Werbezwecken durch und speichert keine Wallet-Daten, Seeds oder private Schlüssel.</p>
+-          <p class="mt-3">Es werden <strong>keine Nutzerkonten</strong> geführt. Bestellungen können ohne Registrierung abgewickelt werden.</p>`,
+-      },
+-      {
+-        title: '3. Welche Daten wir verarbeiten',
+-        body: `
+-          <table class="mt-2 w-full text-left text-xs">
+-            <thead><tr class="border-b border-theme"><th class="py-2 pr-2">Datenart</th><th class="py-2 pr-2">Zweck</th><th class="py-2">Speicherort</th></tr></thead>
+-            <tbody class="divide-y divide-theme">
+-              <tr><td class="py-2 pr-2">Server-Logdaten (IP, Zeit, URL, User-Agent)</td><td class="py-2 pr-2">Sicherheit, Fehleranalyse</td><td class="py-2">Server (${L.logRetentionDays} Tage)</td></tr>
+-              <tr><td class="py-2 pr-2">CSRF-Token (Cookie)</td><td class="py-2 pr-2">Schutz vor Angriffen</td><td class="py-2">Session-Cookie</td></tr>
+-              <tr><td class="py-2 pr-2">Bestell-Snapshots (Invoice-ID, Produktname, Status)</td><td class="py-2 pr-2">Statusverfolgung, Support</td><td class="py-2">Server (JSON-Datei)</td></tr>
+-              <tr><td class="py-2 pr-2">Newsletter-E-Mail (optional, nur mit Einwilligung)</td><td class="py-2 pr-2">Deal-Benachrichtigungen</td><td class="py-2">Server (JSON-Datei)</td></tr>
+-              <tr><td class="py-2 pr-2">Anonyme Produkt-Statistiken</td><td class="py-2 pr-2">Beliebtheits-Ranking</td><td class="py-2">Server (ohne Personenbezug)</td></tr>
+-              <tr><td class="py-2 pr-2">Warenkorb, Favoriten, Theme</td><td class="py-2 pr-2">Nutzerkomfort</td><td class="py-2">Nur Ihr Browser (localStorage)</td></tr>
+-            </tbody>
+-          </table>`,
+-      },
+-      {
+-        title: '4. Rechtsgrundlagen (Art. 6 DSGVO)',
+-        body: `
+-          <ul class="list-inside list-disc space-y-1">
+-            <li><strong>Art. 6 Abs. 1 lit. b DSGVO</strong> – Vertragserfüllung und vorvertragliche Maßnahmen (Bestellabwicklung)</li>
+-            <li><strong>Art. 6 Abs. 1 lit. f DSGVO</strong> – Berechtigtes Interesse (IT-Sicherheit, Missbrauchsprävention, Server-Logs)</li>
+-            <li><strong>Art. 6 Abs. 1 lit. a DSGVO</strong> – Einwilligung (Newsletter, optionale Cookies)</li>
+-          </ul>`,
+-      },
+-      {
+-        title: '5. Externe Dienste und Auftragsverarbeitung',
+-        body: `
+-          <p><strong>Bitrefill</strong> – Für Beschaffung, Zahlung und Lieferung von Gutscheinen. Bei Bestellung werden Produkt- und Zahlungsdaten an Bitrefill übermittelt. Datenschutz: <a href="https://www.bitrefill.com/privacy" target="_blank" rel="noopener noreferrer" class="text-brand-600 hover:underline">bitrefill.com/privacy</a></p>
+-          <p class="mt-3"><strong>Hosting</strong> – Der Server, auf dem Kryptogutscheine betrieben wird, kann Logdaten verarbeiten. Bitte Hosting-Anbieter und AV-Vertrag separat dokumentieren.</p>
+-          <p class="mt-3"><strong>Schriften</strong> – Kryptogutscheine lädt keine Google Fonts oder sonstigen externen Webfonts von Drittanbietern. Schriften werden über Systemschriften bzw. lokal verfügbare Schriftarten dargestellt.</p>`,
+-      },
+-      {
+-        title: '6. Cookies und lokale Speicherung',
+-        body: `
+-          <p>Wir setzen ausschließlich <strong>technisch notwendige Cookies</strong> ein (CSRF-Schutz). Es werden keine Marketing- oder Tracking-Cookies von Drittanbietern verwendet.</p>
+-          <p class="mt-3">Zusätzlich speichert Ihr Browser lokal (localStorage/sessionStorage): Warenkorb, Favoriten, Theme, letzte Suchen, Bestellhistorie. Diese Daten verlassen Ihr Gerät nicht, außer Sie lösen eine Bestellung aus (dann werden technische Bestelldaten serverseitig gespeichert).</p>`,
+-      },
+-      {
+-        title: '6a. Newsletter und Widerruf der Einwilligung',
+-        body: `
+-          <p>Wenn Sie sich für Deal-Alerts anmelden, speichern wir Ihre E-Mail-Adresse ausschließlich für den Versand von Informationen zu Angeboten und Rabatten. Rechtsgrundlage ist Ihre Einwilligung gemäß Art. 6 Abs. 1 lit. a DSGVO.</p>
+-          <p class="mt-3">Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen, z.&nbsp;B. per E-Mail an ${L.email}. Nach Widerruf wird die E-Mail-Adresse aus dem Newsletter-Verteiler entfernt, soweit keine gesetzlichen Aufbewahrungspflichten entgegenstehen.</p>`,
+-      },
+-      {
+-        title: '7. Speicherdauer und Löschung',
+-        body: `
+-          <ul class="list-inside list-disc space-y-1">
+-            <li>Server-Logs: ${L.logRetentionDays} Tage, danach Löschung</li>
+-            <li>Bestell-Snapshots: bis zu 500 Einträge, für Support und Statusabfrage</li>
+-            <li>Newsletter: bis zur Abmeldung</li>
+-            <li>Browser-Daten: bis Sie diese im Browser löschen</li>
+-          </ul>`,
+-      },
+-      {
+-        title: '7a. Keine Weitergabe zu Werbezwecken',
+-        body: `
+-          <p>Wir verkaufen keine personenbezogenen Daten und geben keine personenbezogenen Daten zu Werbezwecken an Dritte weiter. Eine Weitergabe erfolgt nur, wenn sie zur Bestellabwicklung, zur technischen Bereitstellung, zur Erfüllung gesetzlicher Pflichten oder zur Wahrung berechtigter Interessen erforderlich ist.</p>`,
+-      },
+-      {
+-        title: '7b. Keine Profilbildung / kein Verkauf von Daten',
+-        body: `
+-          <p>Wir erstellen keine Nutzerprofile, führen kein verhaltensbasiertes Tracking durch und verkaufen keine personenbezogenen Daten. Server-Logs dienen ausschließlich dem Betrieb, der Sicherheit und der Missbrauchserkennung.</p>`,
+-      },
+-      {
+-        title: '8. Ihre Rechte',
+-        body: `
+-          <p>Sie haben folgende Rechte gegenüber dem Verantwortlichen:</p>
+-          <ul class="mt-2 list-inside list-disc space-y-1">
+-            <li>Auskunft (Art. 15 DSGVO)</li>
+-            <li>Berichtigung (Art. 16 DSGVO)</li>
+-            <li>Löschung (Art. 17 DSGVO)</li>
+-            <li>Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
+-            <li>Datenübertragbarkeit (Art. 20 DSGVO)</li>
+-            <li>Widerspruch (Art. 21 DSGVO)</li>
+-            <li>Widerruf erteilter Einwilligungen (Art. 7 Abs. 3 DSGVO)</li>
+-          </ul>
+-          <p class="mt-3">Anfragen richten Sie an: ${L.email}. Sie haben zudem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</p>`,
+-      },
+-      {
+-        title: '9. Sicherheitsmaßnahmen',
+-        body: `
+-          <ul class="list-inside list-disc space-y-1">
+-            <li>HTTPS-Verschlüsselung (in Produktion)</li>
+-            <li>CSRF-Schutz für schreibende API-Anfragen</li>
+-            <li>XSS-Schutz via Output-Escaping und Content Security Policy</li>
+-            <li>Rate-Limiting gegen Missbrauch</li>
+-            <li>API-Schlüssel ausschließlich serverseitig in Umgebungsvariablen</li>
+-            <li>Keine Speicherung von Zahlungsdaten oder Wallet-Informationen</li>
+-          </ul>`,
+-      },
+-      {
+-        title: '10. Minderjährige',
+-        body: `<p>Kryptogutscheine richtet sich nicht an Personen unter 18 Jahren. Wir erheben wissentlich keine Daten von Minderjährigen.</p>`,
+-      },
+-      {
+-        title: '11. Änderungen dieser Datenschutzerklärung',
+-        body: `<p>Wir behalten uns vor, diese Datenschutzerklärung anzupassen, wenn sich Rechtslage oder technische Umsetzung ändert. Die aktuelle Version ist stets auf dieser Seite abrufbar.</p>`,
+-      },
+-    ],
+-    footerNote:
+-      'Bitte passen Sie legalConfig.js an die tatsächlichen Betreiberangaben an und prüfen Sie die Datenschutzerklärung vor Live-Gang (insb. Hosting, Bitrefill, Newsletter).',
+-  });
++  container.innerHTML = renderLegalPage(getLegalPage('datenschutz'));
+ }
+diff --git a/frontend/pages/faq.js b/frontend/pages/faq.js
+index b0a03b1..8b3802b 100644
+--- a/frontend/pages/faq.js
++++ b/frontend/pages/faq.js
+@@ -21,9 +21,9 @@ export async function renderFaq(container) {
+ 
+       <p class="mt-10 text-xs text-content-muted">
+         ${t('faq.legal')}
+-        <a href="#/agb" data-nav="/agb" class="text-brand-600 hover:underline">${t('nav.agb')}</a>,
+-        <a href="#/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline">${t('nav.privacy')}</a>,
+-        <a href="#/widerruf" data-nav="/widerruf" class="text-brand-600 hover:underline">${t('nav.widerruf')}</a>.
++        <a href="/agb" data-nav="/agb" class="text-brand-600 hover:underline">${t('nav.agb')}</a>,
++        <a href="/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline">${t('nav.privacy')}</a>,
++        <a href="/widerruf" data-nav="/widerruf" class="text-brand-600 hover:underline">${t('nav.widerruf')}</a>.
+       </p>
+     </div>`;
+ 
+diff --git a/frontend/pages/impressum.js b/frontend/pages/impressum.js
+index fe39e11..5db0b4c 100644
+--- a/frontend/pages/impressum.js
++++ b/frontend/pages/impressum.js
+@@ -1,58 +1,6 @@
+ ﻿import { renderLegalPage } from '../components/LegalLayout.js';
+-import { LEGAL, LEGAL_LAST_UPDATED } from '../src/legalConfig.js';
++import { getLegalPage } from '../src/legalDocuments.js';
+ 
+ export async function renderImpressum(container) {
+-  const L = LEGAL;
+-  container.innerHTML = renderLegalPage({
+-    title: 'Impressum',
+-    subtitle: `Angaben gemäß § 5 TMG · Stand: ${LEGAL_LAST_UPDATED}`,
+-    sections: [
+-      {
+-        title: 'Anbieter',
+-        body: `<p><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}</p>`,
+-      },
+-      {
+-        title: 'Kontakt',
+-        body: `<p>Telefon: ${L.phone}<br>E-Mail: ${L.email}<br>Support: ${L.supportEmail}</p>`,
+-      },
+-      {
+-        title: 'Betreiber / verantwortliche Person',
+-        body: `<p>${L.representative}</p>`,
+-      },
+-      {
+-        title: 'Register- und Steuerangaben',
+-        body: `<p>Registergericht: ${L.registerCourt}<br>Registernummer: ${L.registerNumber}<br>Umsatzsteuer-ID: ${L.vatId}</p><p class="mt-3">Falls kein Registereintrag oder keine Umsatzsteuer-ID besteht, ist dies entsprechend als „nicht vorhanden“ anzugeben.</p>`,
+-      },
+-      {
+-        title: 'Verantwortlich für den Inhalt (§ 55 Abs. 2 RStV)',
+-        body: `<p>${L.representative}<br>${L.addressLine1}, ${L.addressLine2}</p>`,
+-      },
+-      {
+-        title: 'Art der Dienstleistung',
+-        body: `
+-          <div class="legal-notice">
+-            Kryptogutscheine ist eine <strong>Gutschein-Vermittlungsplattform</strong>. Wir erbringen
+-            <strong>keine Finanzdienstleistung</strong> im Sinne des KWG, betreiben keine Wallet,
+-            verwahren keine Gelder und führen keine Zahlungsabwicklung durch. Zahlungen erfolgen
+-            ausschließlich über externe Zahlungsanbieter (Bitrefill).
+-          </div>`,
+-      },
+-      {
+-        title: 'Haftung für Inhalte und Links',
+-        body: `
+-          <p>Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen.</p>
+-          <p class="mt-3">Trotz sorgfältiger Kontrolle übernehmen wir keine Haftung für Inhalte externer Links. Für den Inhalt verlinkter Seiten sind ausschließlich deren Betreiber verantwortlich.</p>
+-          <p class="mt-3">Produktverfügbarkeit, Preise und Lieferung von Gutscheinen werden durch den externen Anbieter Bitrefill bestimmt. Kryptogutscheine übernimmt keine Gewähr für deren Richtigkeit oder Verfügbarkeit.</p>`,
+-      },
+-      {
+-        title: 'Streitschlichtung',
+-        body: `
+-          <p>Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:
+-          <a href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener noreferrer" class="text-brand-600 hover:underline">https://ec.europa.eu/consumers/odr/</a>.</p>
+-          <p class="mt-3">Wir sind nicht verpflichtet und nicht bereit, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.</p>`,
+-      },
+-    ],
+-    footerNote:
+-      'Bitte ersetzen Sie alle Platzhalter in frontend/src/legalConfig.js mit den tatsächlichen Angaben des Betreibers, bevor Sie die Plattform produktiv nutzen.',
+-  });
++  container.innerHTML = renderLegalPage(getLegalPage('impressum'));
+ }
+diff --git a/frontend/pages/kiRichtlinie.js b/frontend/pages/kiRichtlinie.js
+new file mode 100644
+index 0000000..974e07f
+--- /dev/null
++++ b/frontend/pages/kiRichtlinie.js
+@@ -0,0 +1,6 @@
++import { renderLegalPage } from '../components/LegalLayout.js';
++import { getLegalPage } from '../src/legalDocuments.js';
++
++export async function renderKiRichtlinie(container) {
++  container.innerHTML = renderLegalPage(getLegalPage('ki-richtlinie'));
++}
+diff --git a/frontend/pages/widerruf.js b/frontend/pages/widerruf.js
+index 4c83a48..dd9d618 100644
+--- a/frontend/pages/widerruf.js
++++ b/frontend/pages/widerruf.js
+@@ -1,136 +1,6 @@
+ ﻿import { renderLegalPage } from '../components/LegalLayout.js';
+-
+-import { LEGAL, LEGAL_LAST_UPDATED } from '../src/legalConfig.js';
+-
+-
++import { getLegalPage } from '../src/legalDocuments.js';
+ 
+ export async function renderWiderruf(container) {
+-
+-  const L = LEGAL;
+-
+-  container.innerHTML = renderLegalPage({
+-
+-    title: 'Widerrufsbelehrung',
+-
+-    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
+-
+-    notice: `<strong>Wichtig:</strong> Kryptogutscheine ist <strong>Vermittler</strong>, nicht Verkäufer. Zahlungen gehen <strong>direkt an Bitrefill</strong>. Kryptogutscheine erhält und verwahrt keine Kundenzahlungen. Erstattungen sind – soweit überhaupt möglich – ausschließlich über Bitrefill als Leistungserbringer abzuwickeln.`,
+-
+-    sections: [
+-
+-      {
+-
+-        title: 'Widerrufsrecht',
+-
+-        body: `
+-
+-          <p>Verbrauchern steht grundsätzlich ein Widerrufsrecht zu, soweit gesetzlich nichts anderes bestimmt ist.</p>
+-
+-          <p class="mt-3">Die Widerrufsfrist beträgt <strong>vierzehn Tage</strong> ab dem Tag des Vertragsschlusses, sofern ein Widerrufsrecht besteht.</p>
+-
+-          <p class="mt-3">Um ein Widerrufsrecht geltend zu machen, können Sie uns kontaktieren:</p>
+-
+-          <p class="mt-2"><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>
+-
+-          <p class="mt-3">Wir leiten berechtigte Anfragen nach Möglichkeit an Bitrefill weiter. Eine Erfolgsgarantie oder Erstattung aus eigener Tasche durch Kryptogutscheine wird nicht übernommen.</p>`,
+-
+-      },
+-
+-      {
+-
+-        title: 'Folgen des Widerrufs – keine Erstattung durch Kryptogutscheine',
+-
+-        body: `
+-
+-          <p><strong>Kryptogutscheine ist nicht Zahlungsempfänger.</strong> Die Krypto-Zahlung erfolgt direkt an Bitrefill. Kryptogutscheine verwahrt keine Gelder und kann daher grundsätzlich <strong>keine Rückerstattung aus eigener Tasche</strong> vornehmen.</p>
+-
+-          <p class="mt-3">Soweit ein Widerruf rechtlich wirksam ist und eine Erstattung geschuldet wird, erfolgt diese ausschließlich über Bitrefill bzw. den jeweiligen Leistungserbringer – nicht über Kryptogutscheine.</p>
+-
+-          <p class="mt-3">Kontaktieren Sie uns bei Problemen unter ${L.supportEmail}. Wir unterstützen bei der Weiterleitung an Bitrefill, übernehmen aber keine Haftung für deren Entscheidungen oder Bearbeitungszeiten.</p>`,
+-
+-      },
+-
+-      {
+-
+-        title: 'Erlöschen des Widerrufsrechts bei digitalen Inhalten',
+-
+-        body: `
+-
+-          <p>Das Widerrufsrecht erlischt bei digitalen Gutscheincodes vorzeitig, wenn</p>
+-
+-          <ul class="mt-2 list-inside list-disc space-y-1">
+-
+-            <li>mit der Ausführung (Bereitstellung des Codes) begonnen wurde,</li>
+-
+-            <li>Sie vorab ausdrücklich zugestimmt haben, dass vor Ablauf der Widerrufsfrist begonnen wird, und</li>
+-
+-            <li>Sie bestätigt haben, dass Sie Ihr Widerrufsrecht damit verlieren.</li>
+-
+-          </ul>
+-
+-          <p class="mt-3">Diese Zustimmung erteilen Sie im Checkout durch Aktivieren der entsprechenden Checkbox vor Zahlungsstart.</p>`,
+-
+-      },
+-
+-      {
+-
+-        title: 'Ausschluss bei bereitgestellten Gutscheincodes',
+-
+-        body: `
+-
+-          <p>Nach Anzeige oder Bereitstellung eines digitalen Gutscheincodes ist eine Rückgabe in der Regel ausgeschlossen, da der Code sofort nutzbar, kopierbar und nicht zuverlässig „zurückgegeben" werden kann. Zwingende gesetzliche Rechte bleiben unberührt.</p>`,
+-
+-      },
+-
+-      {
+-
+-        title: 'Muster-Widerrufsformular',
+-
+-        body: `
+-
+-          <p class="text-content">(Wenn Sie den Vertrag widerrufen wollen, füllen Sie bitte dieses Formular aus und senden Sie es zurück.)</p>
+-
+-          <div class="mt-4 rounded-xl border border-theme bg-surface p-4 text-xs leading-relaxed">
+-
+-            <p>An ${L.providerName}, ${L.addressLine1}, ${L.addressLine2}, ${L.country}, E-Mail: ${L.email}</p>
+-
+-            <p class="mt-3">Hiermit widerrufe(n) ich/wir (*) den von mir/uns (*) abgeschlossenen Vertrag über den Kauf der folgenden Waren (*)/die Erbringung der folgenden Dienstleistung (*)</p>
+-
+-            <p class="mt-3">Bestellt am (*)/erhalten am (*)</p>
+-
+-            <p class="mt-3">Rechnungs-ID / Bestellnummer (*)</p>
+-
+-            <p class="mt-3">Name des/der Verbraucher(s)</p>
+-
+-            <p class="mt-3">Anschrift des/der Verbraucher(s)</p>
+-
+-            <p class="mt-3">E-Mail-Adresse</p>
+-
+-            <p class="mt-3">Datum</p>
+-
+-            <p class="mt-3">(*) Unzutreffendes streichen.</p>
+-
+-          </div>`,
+-
+-      },
+-
+-      {
+-
+-        title: 'Keine Erstattungsgarantie',
+-
+-        body: `
+-
+-          <p>Kryptogutscheine ist Vermittler und nicht Vertragspartner der Gutschein-Lieferung. Für Erstattungen, fehlgeschlagene Bestellungen oder technische Probleme nach Zahlungseingang ist primär Bitrefill zuständig. Kryptogutscheine übernimmt keine Haftung für abgelehnte Erstattungsanträge Dritter.</p>`,
+-
+-      },
+-
+-    ],
+-
+-    footerNote:
+-
+-      'Bitte Widerrufsbelehrung vor Live-Gang rechtlich prüfen lassen. Platzhalter in legalConfig.js ausfüllen.',
+-
+-  });
+-
++  container.innerHTML = renderLegalPage(getLegalPage('widerruf'));
+ }
+-
+diff --git a/frontend/public/.well-known/ward.json b/frontend/public/.well-known/ward.json
+new file mode 100644
+index 0000000..f79d5d3
+--- /dev/null
++++ b/frontend/public/.well-known/ward.json
+@@ -0,0 +1,29 @@
++{
++  "version": "1.0",
++  "publisher": "Kryptogutscheine",
++  "enforcement": "advisory",
++  "default": {
++    "indexing": true,
++    "training": false,
++    "summarization": true,
++    "quotation": {
++      "allowed": true,
++      "attribution_required": true
++    }
++  },
++  "rules": [
++    {
++      "path": "/impressum",
++      "training": false,
++      "summarization": false,
++      "note": "Anbieterkennzeichnung"
++    },
++    {
++      "path": "/datenschutz",
++      "training": false,
++      "summarization": true
++    }
++  ],
++  "contact": "https://kryptogutscheine.onrender.com/impressum",
++  "legal_basis": "EU DSM Directive Art. 4, EU AI Act Art. 53"
++}
+diff --git a/frontend/public/robots.txt b/frontend/public/robots.txt
+new file mode 100644
+index 0000000..7f68637
+--- /dev/null
++++ b/frontend/public/robots.txt
+@@ -0,0 +1,25 @@
++User-agent: *
++Allow: /
++
++User-agent: GPTBot
++Allow: /
++
++User-agent: OAI-SearchBot
++Allow: /
++
++User-agent: ChatGPT-User
++Allow: /
++
++User-agent: Google-Extended
++Allow: /
++
++User-agent: ClaudeBot
++Allow: /
++
++User-agent: PerplexityBot
++Allow: /
++
++User-agent: CCBot
++Allow: /
++
++Sitemap: https://kryptogutscheine.onrender.com/sitemap.xml
+diff --git a/frontend/public/sitemap.xml b/frontend/public/sitemap.xml
+new file mode 100644
+index 0000000..214e3ad
+--- /dev/null
++++ b/frontend/public/sitemap.xml
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/</loc>
++  </url>
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/impressum</loc>
++  </url>
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/datenschutz</loc>
++  </url>
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/agb</loc>
++  </url>
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/widerruf</loc>
++  </url>
++  <url>
++    <loc>https://kryptogutscheine.onrender.com/ki-richtlinie</loc>
++  </url>
++</urlset>
+diff --git a/frontend/public/sw.js b/frontend/public/sw.js
+index 09b632b..1332bbb 100644
+--- a/frontend/public/sw.js
++++ b/frontend/public/sw.js
+@@ -1,4 +1,4 @@
+-﻿const CACHE = 'Kryptogutscheine-v2';
++﻿const CACHE = 'Kryptogutscheine-v3';
+ const OFFLINE = ['/', '/index.html'];
+ 
+ self.addEventListener('install', (e) => {
+diff --git a/frontend/src/i18n.js b/frontend/src/i18n.js
+index 9f916d9..d2af246 100644
+--- a/frontend/src/i18n.js
++++ b/frontend/src/i18n.js
+@@ -20,6 +20,7 @@ const STRINGS = {
+     'nav.widerruf': 'Widerruf',
+     'nav.privacy': 'Datenschutz',
+     'nav.privacyLong': 'Datenschutzerklärung',
++    'nav.aiPolicy': 'KI-Richtlinie',
+ 
+     'country.DE': 'Deutschland',
+     'country.US': 'USA',
+@@ -123,6 +124,7 @@ const STRINGS = {
+ 
+     'cookie.text': 'Wir verwenden nur <strong>technisch notwendige Cookies</strong> (CSRF-Schutz) und speichern keine Tracking-Daten. Details in unserer',
+     'cookie.accept': 'Verstanden',
++    'cookie.reject': 'Ablehnen',
+     'cookie.more': 'Mehr erfahren',
+ 
+     'payment.resume': '<strong>Zahlung läuft noch:</strong> {label}',
+@@ -252,6 +254,7 @@ const STRINGS = {
+     'nav.widerruf': 'Withdrawal',
+     'nav.privacy': 'Privacy',
+     'nav.privacyLong': 'Privacy policy',
++    'nav.aiPolicy': 'AI policy',
+ 
+     'country.DE': 'Germany',
+     'country.US': 'USA',
+@@ -355,6 +358,7 @@ const STRINGS = {
+ 
+     'cookie.text': 'We only use <strong>technically necessary cookies</strong> (CSRF protection) and do not store tracking data. Details in our',
+     'cookie.accept': 'Got it',
++    'cookie.reject': 'Reject',
+     'cookie.more': 'Learn more',
+ 
+     'payment.resume': '<strong>Payment still open:</strong> {label}',
+diff --git a/frontend/src/legalDocuments.js b/frontend/src/legalDocuments.js
+new file mode 100644
+index 0000000..4a56639
+--- /dev/null
++++ b/frontend/src/legalDocuments.js
+@@ -0,0 +1,587 @@
++/**
++ * Eine Quelle für die Rechtstexte.
++ * Die App rendert sie im Layout, der Server liefert dieselben Texte als HTML,
++ * damit Impressum, Datenschutz und AGB ohne JavaScript erreichbar sind.
++ */
++import { LEGAL, LEGAL_LAST_UPDATED } from './legalConfig.js';
++
++export const SITE_ORIGIN = 'https://kryptogutscheine.onrender.com';
++
++export const LEGAL_SLUGS = ['impressum', 'datenschutz', 'agb', 'widerruf', 'ki-richtlinie'];
++
++const PAGE_DESCRIPTIONS = {
++  impressum: 'Anbieterkennzeichnung von Kryptogutscheine gemäß § 5 DDG.',
++  datenschutz: 'Datenschutzerklärung von Kryptogutscheine gemäß Art. 13 DSGVO.',
++  agb: 'Allgemeine Geschäftsbedingungen der Vermittlungsplattform Kryptogutscheine.',
++  widerruf: 'Widerrufsbelehrung für digitale Gutscheine über Kryptogutscheine.',
++  'ki-richtlinie': 'KI-Richtlinie: Kryptogutscheine setzt keine entscheidenden KI-Systeme ein.',
++};
++
++function impressum(L) {
++  return {
++    title: 'Impressum',
++    subtitle: `Angaben gemäß § 5 TMG · Stand: ${LEGAL_LAST_UPDATED}`,
++    sections: [
++      {
++        title: 'Anbieter',
++        body: `<p><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}</p>`,
++      },
++      {
++        title: 'Kontakt',
++        body: `<p>Telefon: ${L.phone}<br>E-Mail: ${L.email}<br>Support: ${L.supportEmail}</p>`,
++      },
++      {
++        title: 'Betreiber / verantwortliche Person',
++        body: `<p>${L.representative}</p>`,
++      },
++      {
++        title: 'Register- und Steuerangaben',
++        body: `<p>Registergericht: ${L.registerCourt}<br>Registernummer: ${L.registerNumber}<br>Umsatzsteuer-ID: ${L.vatId}</p><p class="mt-3">Falls kein Registereintrag oder keine Umsatzsteuer-ID besteht, ist dies entsprechend als „nicht vorhanden“ anzugeben.</p>`,
++      },
++      {
++        title: 'Verantwortlich für den Inhalt (§ 55 Abs. 2 RStV)',
++        body: `<p>${L.representative}<br>${L.addressLine1}, ${L.addressLine2}</p>`,
++      },
++      {
++        title: 'Art der Dienstleistung',
++        body: `
++          <div class="legal-notice">
++            Kryptogutscheine ist eine <strong>Gutschein-Vermittlungsplattform</strong>. Wir erbringen
++            <strong>keine Finanzdienstleistung</strong> im Sinne des KWG, betreiben keine Wallet,
++            verwahren keine Gelder und führen keine Zahlungsabwicklung durch. Zahlungen erfolgen
++            ausschließlich über externe Zahlungsanbieter (Bitrefill).
++          </div>`,
++      },
++      {
++        title: 'Haftung für Inhalte und Links',
++        body: `
++          <p>Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen.</p>
++          <p class="mt-3">Trotz sorgfältiger Kontrolle übernehmen wir keine Haftung für Inhalte externer Links. Für den Inhalt verlinkter Seiten sind ausschließlich deren Betreiber verantwortlich.</p>
++          <p class="mt-3">Produktverfügbarkeit, Preise und Lieferung von Gutscheinen werden durch den externen Anbieter Bitrefill bestimmt. Kryptogutscheine übernimmt keine Gewähr für deren Richtigkeit oder Verfügbarkeit.</p>`,
++      },
++      {
++        title: 'Streitschlichtung',
++        body: `
++          <p>Wir sind nicht verpflichtet und nicht bereit, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen. Die frühere EU-Plattform zur Online-Streitbeilegung ist eingestellt und wird nicht mehr verlinkt.</p>`,
++      },
++    ],
++    footerNote:
++      'Bitte ersetzen Sie alle Platzhalter in frontend/src/legalConfig.js mit den tatsächlichen Angaben des Betreibers, bevor Sie die Plattform produktiv nutzen.',
++  };
++}
++function datenschutz(L) {
++  return {
++    title: 'Datenschutzerklärung',
++    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
++    notice: `<strong>Transparenz:</strong> Kryptogutscheine erhebt nur die Daten, die für den Betrieb der Plattform technisch erforderlich sind. Es werden keine Nutzerkonten geführt und keine Zahlungsdaten gespeichert.`,
++    sections: [
++      {
++        title: '1. Verantwortlicher',
++        body: `<p><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>`,
++      },
++      {
++        title: '2. Grundsätze der Datenverarbeitung',
++        body: `
++          <p>Kryptogutscheine wurde nach dem Prinzip „Privacy by Design" entwickelt. Wir verarbeiten personenbezogene Daten nur, soweit dies zur Bereitstellung der Website, zur Abwicklung von Bestellungen über externe Partner oder aufgrund gesetzlicher Pflichten erforderlich ist.</p>
++          <p class="mt-3">Kryptogutscheine erbringt <strong>keine Finanzdienstleistung</strong>, führt <strong>kein Nutzertracking</strong> zu Werbezwecken durch und speichert keine Wallet-Daten, Seeds oder private Schlüssel.</p>
++          <p class="mt-3">Es werden <strong>keine Nutzerkonten</strong> geführt. Bestellungen können ohne Registrierung abgewickelt werden.</p>`,
++      },
++      {
++        title: '3. Welche Daten wir verarbeiten',
++        body: `
++          <table class="mt-2 w-full text-left text-xs">
++            <thead><tr class="border-b border-theme"><th class="py-2 pr-2">Datenart</th><th class="py-2 pr-2">Zweck</th><th class="py-2">Speicherort</th></tr></thead>
++            <tbody class="divide-y divide-theme">
++              <tr><td class="py-2 pr-2">Server-Logdaten (IP, Zeit, URL, User-Agent)</td><td class="py-2 pr-2">Sicherheit, Fehleranalyse</td><td class="py-2">Server (${L.logRetentionDays} Tage)</td></tr>
++              <tr><td class="py-2 pr-2">CSRF-Token (Cookie)</td><td class="py-2 pr-2">Schutz vor Angriffen</td><td class="py-2">Session-Cookie</td></tr>
++              <tr><td class="py-2 pr-2">Bestell-Snapshots (Invoice-ID, Produktname, Status)</td><td class="py-2 pr-2">Statusverfolgung, Support</td><td class="py-2">Server (JSON-Datei)</td></tr>
++              <tr><td class="py-2 pr-2">Newsletter-E-Mail (optional, nur mit Einwilligung)</td><td class="py-2 pr-2">Deal-Benachrichtigungen</td><td class="py-2">Server (JSON-Datei)</td></tr>
++              <tr><td class="py-2 pr-2">Anonyme Produkt-Statistiken</td><td class="py-2 pr-2">Beliebtheits-Ranking</td><td class="py-2">Server (ohne Personenbezug)</td></tr>
++              <tr><td class="py-2 pr-2">Warenkorb, Favoriten, Theme</td><td class="py-2 pr-2">Nutzerkomfort</td><td class="py-2">Nur Ihr Browser (localStorage)</td></tr>
++            </tbody>
++          </table>`,
++      },
++      {
++        title: '4. Rechtsgrundlagen (Art. 6 DSGVO)',
++        body: `
++          <ul class="list-inside list-disc space-y-1">
++            <li><strong>Art. 6 Abs. 1 lit. b DSGVO</strong> – Vertragserfüllung und vorvertragliche Maßnahmen (Bestellabwicklung)</li>
++            <li><strong>Art. 6 Abs. 1 lit. f DSGVO</strong> – Berechtigtes Interesse (IT-Sicherheit, Missbrauchsprävention, Server-Logs)</li>
++            <li><strong>Art. 6 Abs. 1 lit. a DSGVO</strong> – Einwilligung (Newsletter, optionale Cookies)</li>
++          </ul>`,
++      },
++      {
++        title: '5. Externe Dienste und Auftragsverarbeitung',
++        body: `
++          <p><strong>Bitrefill</strong> – Für Beschaffung, Zahlung und Lieferung von Gutscheinen. Bei Bestellung werden Produkt- und Zahlungsdaten an Bitrefill übermittelt. Datenschutz: <a href="https://www.bitrefill.com/privacy" target="_blank" rel="noopener noreferrer" class="text-brand-600 hover:underline">bitrefill.com/privacy</a></p>
++          <p class="mt-3"><strong>Hosting</strong> – Der Server, auf dem Kryptogutscheine betrieben wird, kann Logdaten verarbeiten. Bitte Hosting-Anbieter und AV-Vertrag separat dokumentieren.</p>
++          <p class="mt-3"><strong>Schriften</strong> – Kryptogutscheine lädt keine Google Fonts oder sonstigen externen Webfonts von Drittanbietern. Schriften werden über Systemschriften bzw. lokal verfügbare Schriftarten dargestellt.</p>`,
++      },
++      {
++        title: '6. Cookies und lokale Speicherung',
++        body: `
++          <p>Wir setzen ausschließlich <strong>technisch notwendige Cookies</strong> ein (CSRF-Schutz). Es werden keine Marketing- oder Tracking-Cookies von Drittanbietern verwendet.</p>
++          <p class="mt-3">Zusätzlich speichert Ihr Browser lokal (localStorage/sessionStorage): Warenkorb, Favoriten, Theme, letzte Suchen, Bestellhistorie. Diese Daten verlassen Ihr Gerät nicht, außer Sie lösen eine Bestellung aus (dann werden technische Bestelldaten serverseitig gespeichert).</p>`,
++      },
++      {
++        title: '6a. Newsletter und Widerruf der Einwilligung',
++        body: `
++          <p>Wenn Sie sich für Deal-Alerts anmelden, speichern wir Ihre E-Mail-Adresse ausschließlich für den Versand von Informationen zu Angeboten und Rabatten. Rechtsgrundlage ist Ihre Einwilligung gemäß Art. 6 Abs. 1 lit. a DSGVO.</p>
++          <p class="mt-3">Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen, z.&nbsp;B. per E-Mail an ${L.email}. Nach Widerruf wird die E-Mail-Adresse aus dem Newsletter-Verteiler entfernt, soweit keine gesetzlichen Aufbewahrungspflichten entgegenstehen.</p>`,
++      },
++      {
++        title: '7. Speicherdauer und Löschung',
++        body: `
++          <ul class="list-inside list-disc space-y-1">
++            <li>Server-Logs: ${L.logRetentionDays} Tage, danach Löschung</li>
++            <li>Bestell-Snapshots: bis zu 500 Einträge, für Support und Statusabfrage</li>
++            <li>Newsletter: bis zur Abmeldung</li>
++            <li>Browser-Daten: bis Sie diese im Browser löschen</li>
++          </ul>`,
++      },
++      {
++        title: '7a. Keine Weitergabe zu Werbezwecken',
++        body: `
++          <p>Wir verkaufen keine personenbezogenen Daten und geben keine personenbezogenen Daten zu Werbezwecken an Dritte weiter. Eine Weitergabe erfolgt nur, wenn sie zur Bestellabwicklung, zur technischen Bereitstellung, zur Erfüllung gesetzlicher Pflichten oder zur Wahrung berechtigter Interessen erforderlich ist.</p>`,
++      },
++      {
++        title: '7b. Keine Profilbildung / kein Verkauf von Daten',
++        body: `
++          <p>Wir erstellen keine Nutzerprofile, führen kein verhaltensbasiertes Tracking durch und verkaufen keine personenbezogenen Daten. Server-Logs dienen ausschließlich dem Betrieb, der Sicherheit und der Missbrauchserkennung.</p>`,
++      },
++      {
++        title: '8. Ihre Rechte',
++        body: `
++          <p>Sie haben folgende Rechte gegenüber dem Verantwortlichen:</p>
++          <ul class="mt-2 list-inside list-disc space-y-1">
++            <li>Auskunft (Art. 15 DSGVO)</li>
++            <li>Berichtigung (Art. 16 DSGVO)</li>
++            <li>Löschung (Art. 17 DSGVO)</li>
++            <li>Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
++            <li>Datenübertragbarkeit (Art. 20 DSGVO)</li>
++            <li>Widerspruch (Art. 21 DSGVO)</li>
++            <li>Widerruf erteilter Einwilligungen (Art. 7 Abs. 3 DSGVO)</li>
++          </ul>
++          <p class="mt-3">Anfragen richten Sie an: ${L.email}. Sie haben zudem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</p>`,
++      },
++      {
++        title: '9. Sicherheitsmaßnahmen',
++        body: `
++          <ul class="list-inside list-disc space-y-1">
++            <li>HTTPS-Verschlüsselung (in Produktion)</li>
++            <li>CSRF-Schutz für schreibende API-Anfragen</li>
++            <li>XSS-Schutz via Output-Escaping und Content Security Policy</li>
++            <li>Rate-Limiting gegen Missbrauch</li>
++            <li>API-Schlüssel ausschließlich serverseitig in Umgebungsvariablen</li>
++            <li>Keine Speicherung von Zahlungsdaten oder Wallet-Informationen</li>
++          </ul>`,
++      },
++      {
++        title: '10. Minderjährige',
++        body: `<p>Kryptogutscheine richtet sich nicht an Personen unter 18 Jahren. Wir erheben wissentlich keine Daten von Minderjährigen.</p>`,
++      },
++      {
++        title: '11. Änderungen dieser Datenschutzerklärung',
++        body: `<p>Wir behalten uns vor, diese Datenschutzerklärung anzupassen, wenn sich Rechtslage oder technische Umsetzung ändert. Die aktuelle Version ist stets auf dieser Seite abrufbar.</p>`,
++      },
++    ],
++    footerNote:
++      'Bitte passen Sie legalConfig.js an die tatsächlichen Betreiberangaben an und prüfen Sie die Datenschutzerklärung vor Live-Gang (insb. Hosting, Bitrefill, Newsletter).',
++  };
++}
++function agb(L) {
++  return {
++    title: 'Allgemeine Geschäftsbedingungen (AGB)',
++    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
++    notice: `<strong>Wichtig:</strong> Kryptogutscheine ist eine reine <strong>Gutschein-Vermittlungsplattform</strong>. Wir erbringen <strong>keine Finanzdienstleistung</strong>, betreiben keine Wallet, verwahren keine Gelder und sind nicht Zahlungsdienstleister. Vertrag über Gutschein und Zahlung kommt mit dem externen Anbieter (Bitrefill) zustande.`,
++    sections: [
++      {
++        title: '§ 1 Geltungsbereich und Vertragspartner',
++        body: `
++          <p>(1) Diese Allgemeinen Geschäftsbedingungen gelten für die Nutzung der Website und Plattform Kryptogutscheine unter der Domain <strong>kryptogutscheine.com</strong>.</p>
++          <p class="mt-3">(2) Anbieter und Betreiber ist:</p>
++          <p class="mt-2"><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>
++          <p class="mt-3">(3) Kryptogutscheine richtet sich an Verbraucher und Unternehmer, sofern nicht ausdrücklich anders gekennzeichnet.</p>`,
++      },
++      {
++        title: '§ 2 Art der Leistung – reine Vermittlung',
++        body: `
++          <p>(1) Kryptogutscheine stellt eine technische Oberfläche zur Verfügung, über die Nutzer digitale Gutscheine auswählen und Bestellungen anstoßen können.</p>
++          <p class="mt-3">(2) Kryptogutscheine <strong>verkauft keine Gutscheine im eigenen Namen</strong>, sondern vermittelt den Zugang zu Produkten und Zahlungsabwicklung des externen Partners <strong>Bitrefill</strong> (Bitrefill Pte. Ltd. bzw. jeweiliger Rechtsträger).</p>
++          <p class="mt-3">(3) Kryptogutscheine erbringt <strong>keine Finanzdienstleistung</strong> im Sinne des Kreditwesengesetzes (KWG), keine Zahlungsdienste im Sinne des Zahlungsdiensteaufsichtsgesetzes (ZAG), keine Kryptoverwahrung und keine Anlageberatung.</p>
++          <p class="mt-3">(4) Kryptowährungs-Zahlungen werden <strong>direkt an Bitrefill</strong> bzw. dessen Zahlungsinfrastruktur geleistet. Kryptogutscheine erhält, speichert oder kontrolliert keine privaten Schlüssel, Seeds oder Wallet-Guthaben der Nutzer.</p>
++          <p class="mt-3">(5) Kryptogutscheine ist nicht Herausgeber, Verkäufer oder Garantiegeber der angezeigten Gutscheine. Herausgeber und Einlösestellen sind die jeweiligen Marken bzw. Händler.</p>`,
++      },
++      {
++        title: '§ 3 Vertragsschluss und Bestellablauf',
++        body: `
++          <p>(1) Die Darstellung von Produkten auf Kryptogutscheine stellt kein rechtlich bindendes Angebot dar, sondern eine unverbindliche Aufforderung zur Bestellung.</p>
++          <p class="mt-3">(2) Mit Klick auf „Zahlung starten“ und Bestätigung im Checkout gibt der Nutzer eine verbindliche Bestellung ab. Die Annahme und Erfüllung erfolgt durch Bitrefill als Leistungserbringer.</p>
++          <p class="mt-3">(3) Der Nutzer bestätigt vor Abschluss, die <a href="/agb" data-nav="/agb" class="text-brand-600 hover:underline">AGB</a>, die <a href="/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline">Datenschutzerklärung</a> und die <a href="/widerruf" data-nav="/widerruf" class="text-brand-600 hover:underline">Widerrufsbelehrung</a> gelesen zu haben und akzeptiert diese.</p>
++          <p class="mt-3">(4) Kryptogutscheine kann Bestellungen technisch ablehnen, wenn API-Dienste nicht verfügbar sind, Sicherheitsprüfungen fehlschlagen oder Missbrauch vorliegt.</p>`,
++      },
++      {
++        title: '§ 4 Produktangebot – kuratierter Katalog',
++        body: `
++          <p>(1) Kryptogutscheine bietet ausschließlich einen <strong>manuell kuratierten Katalog</strong> digitaler Marken-Gutscheine an (z.&nbsp;B. Shopping, Gaming, Streaming, Gastronomie). Es werden bewusst <strong>keine</strong> eSIMs, Handy-Aufladungen, Prepaid-Zahlungskarten, Glücksspiel-, Dating-, Adult-, Geldtransfer- oder vergleichbar heikle Produkte angeboten.</p>
++          <p class="mt-3">(2) Der Katalog wird regelmäßig geprüft. Produkte können jederzeit ohne Vorankündigung entfernt oder ergänzt werden, wenn rechtliche, technische oder sicherheitsrelevante Gründe dies erfordern.</p>
++          <p class="mt-3">(3) Die Darstellung eines Produkts begründet keine Garantie für dauerhafte Verfügbarkeit, Einlösbarkeit in allen Regionen oder bestimmte Krypto-Zahlungsmethoden.</p>
++          <p class="mt-3">(4) Der Nutzer ist verpflichtet, vor Bestellung Produktwert, Land, Währung, Einlösebedingungen, Ablaufdatum, regionale Beschränkungen und sonstige Bedingungen des Gutschein-Herausgebers selbst zu prüfen.</p>
++          <p class="mt-3">(5) Produktbilder, Logos und Markennamen dienen ausschließlich der Identifikation. Alle Markenrechte liegen bei den jeweiligen Rechteinhabern.</p>`,
++      },
++      {
++        title: '§ 5 Preise, Verfügbarkeit und Produktinformationen',
++        body: `
++          <p>(1) Alle Preise, Verfügbarkeiten und Produktbeschreibungen stammen vom externen Anbieter Bitrefill und können sich jederzeit ändern.</p>
++          <p class="mt-3">(2) Kryptogutscheine übernimmt keine Gewähr dafür, dass ein angezeigtes Produkt zum Zeitpunkt der Bestellung verfügbar, in einem bestimmten Land einlösbar oder zu einem bestimmten Kurs erhältlich ist.</p>
++          <p class="mt-3">(3) Krypto-Beträge vor Rechnungserstellung sind Schätzungen. Der verbindliche Zahlungsbetrag ergibt sich aus der von Bitrefill erstellten Rechnung.</p>`,
++      },
++      {
++        title: '§ 6 Kryptowährungen – besondere Risiken',
++        body: `
++          <p>(1) Zahlungen mit Kryptowährungen sind in der Regel <strong>unwiderruflich</strong>. Fehlüberweisungen (falsches Netzwerk, falscher Token, falscher Betrag, falsche Adresse) können zum <strong>vollständigen Verlust</strong> des eingesetzten Betrags führen.</p>
++          <p class="mt-3">(2) Der Nutzer ist allein dafür verantwortlich, die richtige Kryptowährung, das richtige Netzwerk (z.&nbsp;B. Polygon, Ethereum, Tron) und den exakten Betrag zu verwenden.</p>
++          <p class="mt-3">(3) Kryptogutscheine haftet nicht für Kursschwankungen, Netzwerkgebühren, Verzögerungen der Blockchain, Wallet-Fehler oder Nutzerfehler bei der Zahlung.</p>
++          <p class="mt-3">(4) Nach Ablauf der Zahlungsfrist muss eine neue Rechnung erstellt werden. Bereits gesendete Zahlungen an abgelaufene Rechnungen können nicht garantiert zugeordnet werden.</p>
++          <p class="mt-3">(5) Kryptogutscheine schuldet keine Rückabwicklung von Blockchain-Transaktionen und kann verlorene, falsch gesendete oder an Dritte gezahlte Kryptowährungen nicht wiederbeschaffen.</p>`,
++      },
++      {
++        title: '§ 7 Lieferung digitaler Gutscheine',
++        body: `
++          <p>(1) Digitale Gutscheincodes werden nach Zahlungsbestätigung durch Bitrefill bereitgestellt und auf der Bestellstatus-Seite angezeigt.</p>
++          <p class="mt-3">(2) Der Nutzer ist verpflichtet, Gutscheincodes sicher zu speichern. Kryptogutscheine speichert keine dauerhaften Nutzerkonten; verlorene Codes können nach Browser-Löschung ggf. nicht wiederhergestellt werden.</p>
++          <p class="mt-3">(3) Einlösungsbedingungen, Gültigkeitsdauer und regionale Beschränkungen richten sich nach dem jeweiligen Gutschein-Anbieter (z.&nbsp;B. Amazon, Steam).</p>
++          <p class="mt-3">(4) Gutscheincodes gelten nach Bereitstellung grundsätzlich als geliefert. Eine Rücknahme ist in der Regel ausgeschlossen, sofern nicht zwingendes Recht etwas anderes bestimmt.</p>`,
++      },
++      {
++        title: '§ 8 Fehlgeschlagene Bestellungen – Haftungsausschluss',
++        body: `
++          <p>(1) Kryptogutscheine haftet <strong>nicht</strong> für Störungen, Ausfälle oder Fehler des externen Anbieters Bitrefill, von Blockchain-Netzwerken, Wallet-Software oder Drittanbieter-Infrastruktur.</p>
++          <p class="mt-3">(2) Insbesondere übernimmt Kryptogutscheine keine Verantwortung bei:</p>
++          <ul class="mt-2 list-inside list-disc space-y-1">
++            <li>fehlgeschlagener oder verspäteter Gutschein-Lieferung durch Bitrefill,</li>
++            <li>abgelehnten oder nicht verfügbaren Produkten,</li>
++            <li>fehlerhaften Gutscheincodes,</li>
++            <li>nicht akzeptierten Krypto-Zahlungen,</li>
++            <li>technischen API-Fehlern oder Wartungsarbeiten,</li>
++            <li>Missbrauch oder Sperrung durch den Gutschein-Herausgeber.</li>
++          </ul>
++          <p class="mt-3">(3) Ansprüche aus dem Kaufvertrag über den Gutschein sind gegenüber dem Leistungserbringer Bitrefill geltend zu machen. Kryptogutscheine unterstützt nach Möglichkeit bei der Kommunikation, ist aber nicht verpflichtet und nicht haftbar für deren Entscheidungen.</p>
++          <p class="mt-3">(4) Kryptogutscheine kann freiwillig Support leisten, ohne dadurch Vertragspartner der Gutschein-Lieferung oder Erstattungsschuldner zu werden.</p>
++          <p class="mt-3">(5) Support-Anfragen können an ${L.supportEmail} gerichtet werden. Eine Erfolgsgarantie wird nicht gegeben.</p>`,
++      },
++      {
++        title: '§ 9 Gewährleistung und Haftungsbeschränkung',
++        body: `
++          <p>(1) Kryptogutscheine haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit sowie bei Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit.</p>
++          <p class="mt-3">(2) Bei leichter Fahrlässigkeit haftet Kryptogutscheine nur bei Verletzung wesentlicher Vertragspflichten (Kardinalpflichten), beschränkt auf den vorhersehbaren, vertragstypischen Schaden.</p>
++          <p class="mt-3">(3) Im Übrigen ist die Haftung von Kryptogutscheine – soweit gesetzlich zulässig – <strong>ausgeschlossen</strong>. Dies gilt insbesondere für mittelbare Schäden, entgangenen Gewinn, Datenverlust und Folgeschäden aus Krypto-Transaktionen.</p>
++          <p class="mt-3">(4) Die Haftung für Inhalte, Dienste, Produkte, Verfügbarkeiten und Entscheidungen Dritter ist ausgeschlossen, soweit Kryptogutscheine diese nicht selbst zu vertreten hat.</p>
++          <p class="mt-3">(5) Zwingende gesetzliche Haftungsansprüche (z.&nbsp;B. nach dem Produkthaftungsgesetz) bleiben unberührt.</p>`,
++      },
++      {
++        title: '§ 10 Nutzungsrechte und Pflichten des Nutzers',
++        body: `
++          <p>(1) Der Nutzer darf Kryptogutscheine nur rechtmäßig und im Rahmen dieser AGB nutzen.</p>
++          <p class="mt-3">(2) Missbrauch (z.&nbsp;B. automatisierte Angriffe, Umgehung von Sicherheitsmechanismen, betrügerische Bestellungen) kann zur Sperrung des Zugangs führen.</p>
++          <p class="mt-3">(3) Der Nutzer versichert, berechtigt zu sein, die gewählte Zahlungsmethode zu nutzen und geltendes Recht einzuhalten.</p>
++          <p class="mt-3">(4) Die Nutzung von Kryptogutscheine für rechtswidrige Zwecke, Geldwäsche, Sanktionsumgehung, Betrug, Terrorismusfinanzierung oder sonstige missbräuchliche Zwecke ist untersagt.</p>
++          <p class="mt-3">(5) Kryptogutscheine kann Bestellungen ablehnen, abbrechen oder den Zugang beschränken, wenn der Verdacht auf Missbrauch, Rechtsverstöße, technische Angriffe oder ungewöhnliche Nutzung besteht.</p>
++          <p class="mt-3">(6) Der Nutzer ist selbst dafür verantwortlich, ob Erwerb, Besitz, Einlösung oder Weitergabe eines Gutscheins in seinem Land zulässig ist.</p>`,
++      },
++      {
++        title: '§ 11 Altersbeschränkung',
++        body: `
++          <p>(1) Kryptogutscheine richtet sich ausschließlich an Personen ab 18 Jahren.</p>
++          <p class="mt-3">(2) Minderjährige dürfen Kryptogutscheine nicht nutzen. Mit Nutzung der Plattform bestätigt der Nutzer, volljährig und unbeschränkt geschäftsfähig zu sein.</p>`,
++      },
++      {
++        title: '§ 12 Streitbeilegung und anwendbares Recht',
++        body: `
++          <p>(1) Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts, soweit dem keine zwingenden Verbraucherschutzvorschriften des Wohnsitzstaates des Verbrauchers entgegenstehen.</p>
++          <p class="mt-3">(2) Wir sind nicht verpflichtet und nicht bereit, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen. Die frühere EU-Plattform zur Online-Streitbeilegung ist eingestellt und wird nicht mehr verlinkt.</p>`,
++      },
++      {
++        title: '§ 13 Salvatorische Klausel und Änderungen',
++        body: `
++          <p>(1) Sollten einzelne Bestimmungen unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.</p>
++          <p class="mt-3">(2) Kryptogutscheine kann diese AGB mit Wirkung für die Zukunft anpassen. Die jeweils aktuelle Version ist auf der Website abrufbar.</p>`,
++      },
++    ],
++    footerNote:
++      'Diese AGB sind eine Vorlage und ersetzen keine individuelle Rechtsberatung. Bitte vor Veröffentlichung prüfen lassen und alle Platzhalter in legalConfig.js mit den echten Betreiberangaben ausfüllen.',
++  };
++}
++function widerruf(L) {
++  return {
++
++    title: 'Widerrufsbelehrung',
++
++    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
++
++    notice: `<strong>Wichtig:</strong> Kryptogutscheine ist <strong>Vermittler</strong>, nicht Verkäufer. Zahlungen gehen <strong>direkt an Bitrefill</strong>. Kryptogutscheine erhält und verwahrt keine Kundenzahlungen. Erstattungen sind – soweit überhaupt möglich – ausschließlich über Bitrefill als Leistungserbringer abzuwickeln.`,
++
++    sections: [
++
++      {
++
++        title: 'Widerrufsrecht',
++
++        body: `
++
++          <p>Verbrauchern steht grundsätzlich ein Widerrufsrecht zu, soweit gesetzlich nichts anderes bestimmt ist.</p>
++
++          <p class="mt-3">Die Widerrufsfrist beträgt <strong>vierzehn Tage</strong> ab dem Tag des Vertragsschlusses, sofern ein Widerrufsrecht besteht.</p>
++
++          <p class="mt-3">Um ein Widerrufsrecht geltend zu machen, können Sie uns kontaktieren:</p>
++
++          <p class="mt-2"><strong>${L.providerName}</strong><br>${L.addressLine1}<br>${L.addressLine2}<br>${L.country}<br>E-Mail: ${L.email}</p>
++
++          <p class="mt-3">Wir leiten berechtigte Anfragen nach Möglichkeit an Bitrefill weiter. Eine Erfolgsgarantie oder Erstattung aus eigener Tasche durch Kryptogutscheine wird nicht übernommen.</p>`,
++
++      },
++
++      {
++
++        title: 'Folgen des Widerrufs – keine Erstattung durch Kryptogutscheine',
++
++        body: `
++
++          <p><strong>Kryptogutscheine ist nicht Zahlungsempfänger.</strong> Die Krypto-Zahlung erfolgt direkt an Bitrefill. Kryptogutscheine verwahrt keine Gelder und kann daher grundsätzlich <strong>keine Rückerstattung aus eigener Tasche</strong> vornehmen.</p>
++
++          <p class="mt-3">Soweit ein Widerruf rechtlich wirksam ist und eine Erstattung geschuldet wird, erfolgt diese ausschließlich über Bitrefill bzw. den jeweiligen Leistungserbringer – nicht über Kryptogutscheine.</p>
++
++          <p class="mt-3">Kontaktieren Sie uns bei Problemen unter ${L.supportEmail}. Wir unterstützen bei der Weiterleitung an Bitrefill, übernehmen aber keine Haftung für deren Entscheidungen oder Bearbeitungszeiten.</p>`,
++
++      },
++
++      {
++
++        title: 'Erlöschen des Widerrufsrechts bei digitalen Inhalten',
++
++        body: `
++
++          <p>Das Widerrufsrecht erlischt bei digitalen Gutscheincodes vorzeitig, wenn</p>
++
++          <ul class="mt-2 list-inside list-disc space-y-1">
++
++            <li>mit der Ausführung (Bereitstellung des Codes) begonnen wurde,</li>
++
++            <li>Sie vorab ausdrücklich zugestimmt haben, dass vor Ablauf der Widerrufsfrist begonnen wird, und</li>
++
++            <li>Sie bestätigt haben, dass Sie Ihr Widerrufsrecht damit verlieren.</li>
++
++          </ul>
++
++          <p class="mt-3">Diese Zustimmung erteilen Sie im Checkout durch Aktivieren der entsprechenden Checkbox vor Zahlungsstart.</p>`,
++
++      },
++
++      {
++
++        title: 'Ausschluss bei bereitgestellten Gutscheincodes',
++
++        body: `
++
++          <p>Nach Anzeige oder Bereitstellung eines digitalen Gutscheincodes ist eine Rückgabe in der Regel ausgeschlossen, da der Code sofort nutzbar, kopierbar und nicht zuverlässig „zurückgegeben" werden kann. Zwingende gesetzliche Rechte bleiben unberührt.</p>`,
++
++      },
++
++      {
++
++        title: 'Muster-Widerrufsformular',
++
++        body: `
++
++          <p class="text-content">(Wenn Sie den Vertrag widerrufen wollen, füllen Sie bitte dieses Formular aus und senden Sie es zurück.)</p>
++
++          <div class="mt-4 rounded-xl border border-theme bg-surface p-4 text-xs leading-relaxed">
++
++            <p>An ${L.providerName}, ${L.addressLine1}, ${L.addressLine2}, ${L.country}, E-Mail: ${L.email}</p>
++
++            <p class="mt-3">Hiermit widerrufe(n) ich/wir (*) den von mir/uns (*) abgeschlossenen Vertrag über den Kauf der folgenden Waren (*)/die Erbringung der folgenden Dienstleistung (*)</p>
++
++            <p class="mt-3">Bestellt am (*)/erhalten am (*)</p>
++
++            <p class="mt-3">Rechnungs-ID / Bestellnummer (*)</p>
++
++            <p class="mt-3">Name des/der Verbraucher(s)</p>
++
++            <p class="mt-3">Anschrift des/der Verbraucher(s)</p>
++
++            <p class="mt-3">E-Mail-Adresse</p>
++
++            <p class="mt-3">Datum</p>
++
++            <p class="mt-3">(*) Unzutreffendes streichen.</p>
++
++          </div>`,
++
++      },
++
++      {
++
++        title: 'Keine Erstattungsgarantie',
++
++        body: `
++
++          <p>Kryptogutscheine ist Vermittler und nicht Vertragspartner der Gutschein-Lieferung. Für Erstattungen, fehlgeschlagene Bestellungen oder technische Probleme nach Zahlungseingang ist primär Bitrefill zuständig. Kryptogutscheine übernimmt keine Haftung für abgelehnte Erstattungsanträge Dritter.</p>`,
++
++      },
++
++    ],
++
++    footerNote:
++
++      'Bitte Widerrufsbelehrung vor Live-Gang rechtlich prüfen lassen. Platzhalter in legalConfig.js ausfüllen.',
++
++  };
++}
++
++function kiRichtlinie(L) {
++  return {
++    title: 'KI-Richtlinie',
++    subtitle: `Stand: ${LEGAL_LAST_UPDATED}`,
++    notice: `<strong>Kurz:</strong> Kryptogutscheine setzt keine KI ein, die Entscheidungen über Personen trifft. Diese Seite beschreibt das transparent (EU AI Act) und verweist auf die maschinenlesbaren Zugangsregeln.`,
++    sections: [
++      {
++        title: '1. Keine KI-Systeme mit Wirkung auf Personen',
++        body: `
++          <p>Auf Kryptogutscheine gibt es keinen Chatbot, keine automatisierte Profilbildung, kein Scoring und keine biometrische Erkennung. Es werden keine KI-Systeme eingesetzt, die über den Zugang zu Angeboten, Preisen oder Verträgen entscheiden.</p>
++          <p class="mt-3">Produktkatalog, Preise und Lieferung stammen vom Partner Bitrefill bzw. aus dem kuratierten Katalog. Die Darstellung ist regelbasiert und nicht das Ergebnis eines personenbezogenen KI-Modells.</p>`,
++      },
++      {
++        title: '2. Zugangsregeln für KI-Crawler',
++        body: `
++          <p>Maschinenlesbare Regeln stehen in der WARD-Policy unter <a href="/.well-known/ward.json">/.well-known/ward.json</a>.</p>
++          <ul class="mt-2 list-inside list-disc space-y-1">
++            <li>Indexierung durch KI-Suchsysteme: erlaubt</li>
++            <li>Training von KI-Modellen mit den Inhalten: nicht erlaubt</li>
++            <li>Zusammenfassen und Zitieren mit Quellenangabe: erlaubt</li>
++          </ul>
++          <p class="mt-3">Bekannte KI-Bots werden in der <a href="/robots.txt">robots.txt</a> nicht pauschal gesperrt. Für die Trainingsnutzung gilt die WARD-Policy. Diese Regeln sind eine Erklärung des Betreibers (${L.providerName}) und ersetzen keine individuelle Rechtsberatung.</p>`,
++      },
++      {
++        title: '3. Verhältnis zur Datenschutzerklärung',
++        body: `
++          <p>Personenbezogene Daten werden in der <a href="/datenschutz" data-nav="/datenschutz" class="text-brand-600 hover:underline">Datenschutzerklärung</a> beschrieben. Diese KI-Richtlinie ergänzt sie nur um die Frage, ob KI-Systeme eingesetzt werden und wie KI-Crawler die öffentlichen Seiten nutzen dürfen.</p>`,
++      },
++    ],
++    footerNote: 'Bitte Betreiberangaben in legalConfig.js ausfüllen. Diese Richtlinie ist eine technische Transparenzseite und keine Rechtsberatung.',
++  };
++}
++
++
++const BUILDERS = {
++  impressum,
++  datenschutz,
++  agb,
++  widerruf,
++  'ki-richtlinie': kiRichtlinie,
++};
++
++export function getLegalPage(slug) {
++  const build = BUILDERS[slug];
++  if (!build) return null;
++  return build(LEGAL);
++}
++
++function escapeHtml(str) {
++  return String(str ?? '')
++    .replace(/&/g, '&amp;')
++    .replace(/</g, '&lt;')
++    .replace(/>/g, '&gt;')
++    .replace(/"/g, '&quot;');
++}
++
++function renderArticle(doc) {
++  const sections = doc.sections
++    .map(
++      (section) => `<section>
++        <h2>${escapeHtml(section.title)}</h2>
++        <div class="prose">${section.body}</div>
++      </section>`
++    )
++    .join('');
++  return `<h1>${escapeHtml(doc.title)}</h1>
++    ${doc.subtitle ? `<p class="muted">${escapeHtml(doc.subtitle)}</p>` : ''}
++    ${doc.notice ? `<div class="notice">${doc.notice}</div>` : ''}
++    ${sections}
++    ${doc.footerNote ? `<p class="footnote">${escapeHtml(doc.footerNote)}</p>` : ''}`;
++}
++
++function navLinks(current) {
++  const items = [
++    ['/', 'Start'],
++    ['/impressum', 'Impressum'],
++    ['/datenschutz', 'Datenschutzerklärung'],
++    ['/agb', 'AGB'],
++    ['/widerruf', 'Widerrufsbelehrung'],
++    ['/ki-richtlinie', 'KI-Richtlinie'],
++  ];
++  return items
++    .map(([href, label]) => {
++      const attrs = href === current ? ' aria-current="page"' : '';
++      return `<a href="${href}"${attrs}>${label}</a>`;
++    })
++    .join('');
++}
++
++export function renderLegalDocumentHtml(slug) {
++  const doc = getLegalPage(slug);
++  if (!doc) return null;
++  const origin = SITE_ORIGIN;
++  const url = `${origin}/${slug}`;
++  const description = PAGE_DESCRIPTIONS[slug] || doc.title;
++  const year = new Date().getFullYear();
++  return `<!DOCTYPE html>
++<html lang="de">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>${escapeHtml(doc.title)} – Kryptogutscheine</title>
++  <meta name="description" content="${escapeHtml(description)}">
++  <link rel="canonical" href="${url}">
++  <meta property="og:title" content="${escapeHtml(doc.title)} – Kryptogutscheine">
++  <meta property="og:description" content="${escapeHtml(description)}">
++  <meta property="og:type" content="website">
++  <meta property="og:url" content="${url}">
++  <meta property="og:locale" content="de_DE">
++  <meta property="og:site_name" content="Kryptogutscheine">
++  <meta property="og:image" content="${origin}/icons/icon.svg">
++  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
++  <style>
++    :root { color-scheme: light; }
++    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.55; color: #0b1220; background: #f6f8fb; }
++    a { color: #0f766e; }
++    .skip-link { position: absolute; left: 1rem; top: -4rem; background: #0f766e; color: #fff; padding: 0.5rem 0.8rem; border-radius: 0.5rem; z-index: 10; }
++    .skip-link:focus { top: 1rem; }
++    header, footer { padding: 1rem 1.25rem; background: #fff; border-bottom: 1px solid #e6ebf2; }
++    footer { border-top: 1px solid #e6ebf2; border-bottom: 0; margin-top: 2rem; }
++    nav { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; margin-top: 0.75rem; }
++    main { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
++    h1 { font-size: 1.8rem; line-height: 1.2; margin: 0 0 0.75rem; }
++    h2 { font-size: 1.15rem; margin: 0 0 0.5rem; }
++    section { background: #fff; border: 1px solid #e6ebf2; border-radius: 12px; padding: 1rem 1.1rem; margin: 0.9rem 0; }
++    .muted, .footnote { color: #5b6b80; }
++    .notice { background: #f0fdf9; border: 1px solid #99f6df; border-radius: 12px; padding: 0.9rem 1rem; }
++    .brand { font-weight: 700; text-decoration: none; color: inherit; }
++    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
++  </style>
++</head>
++<body>
++  <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
++  <header>
++    <a class="brand" href="/">Kryptogutscheine</a>
++    <nav aria-label="Rechtliches">${navLinks('/' + slug)}</nav>
++  </header>
++  <main id="main-content">
++    ${renderArticle(doc)}
++  </main>
++  <footer>
++    <nav aria-label="Rechtliches Footer">${navLinks('/' + slug)}</nav>
++    <p class="footnote">© ${year} Kryptogutscheine · <a href="/">Zur Startseite</a></p>
++  </footer>
++</body>
++</html>`;
++}
+diff --git a/frontend/src/meta.js b/frontend/src/meta.js
+index d1136c3..76ca000 100644
+--- a/frontend/src/meta.js
++++ b/frontend/src/meta.js
+@@ -24,51 +24,71 @@
+ 
+   '/faq': { title: 'FAQ – Kryptogutscheine', desc: 'Häufig gestellte Fragen zu Kryptogutscheine.' },
+ 
++  '/ki-richtlinie': { title: 'KI-Richtlinie – Kryptogutscheine', desc: 'Kryptogutscheine setzt keine KI-Systeme ein, die über Personen entscheiden.' },
++
+ };
+ 
+ 
+ 
+-export function setPageMeta(path, extra = {}) {
++function upsertMeta(selector, create, content) {
++  let el = document.head.querySelector(selector);
++  if (!el) {
++    el = create();
++    document.head.appendChild(el);
++  }
++  el.setAttribute('content', content);
++  return el;
++}
+ 
++export function setPageMeta(path, extra = {}) {
+   const base = PAGES[path] || PAGES['/'];
+-
+   const title = extra.title || base.title;
+-
+   const desc = extra.desc || base.desc;
+-
+-
++  const url = new URL(path || '/', window.location.origin).href;
+ 
+   document.title = title;
+-
+-  let meta = document.querySelector('meta[name="description"]');
+-
+-  if (!meta) {
+-
+-    meta = document.createElement('meta');
+-
++  upsertMeta('meta[name="description"]', () => {
++    const meta = document.createElement('meta');
+     meta.name = 'description';
+-
+-    document.head.appendChild(meta);
+-
++    return meta;
++  }, desc);
++  upsertMeta('meta[property="og:title"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:title');
++    return meta;
++  }, title);
++  upsertMeta('meta[property="og:description"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:description');
++    return meta;
++  }, desc);
++  upsertMeta('meta[property="og:url"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:url');
++    return meta;
++  }, url);
++  upsertMeta('meta[property="og:type"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:type');
++    return meta;
++  }, 'website');
++  upsertMeta('meta[property="og:locale"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:locale');
++    return meta;
++  }, 'de_DE');
++  upsertMeta('meta[property="og:site_name"]', () => {
++    const meta = document.createElement('meta');
++    meta.setAttribute('property', 'og:site_name');
++    return meta;
++  }, 'Kryptogutscheine');
++
++  let canonical = document.head.querySelector('link[rel="canonical"]');
++  if (!canonical) {
++    canonical = document.createElement('link');
++    canonical.rel = 'canonical';
++    document.head.appendChild(canonical);
+   }
+-
+-  meta.content = desc;
+-
+-
+-
+-  let og = document.querySelector('meta[property="og:title"]');
+-
+-  if (!og) {
+-
+-    og = document.createElement('meta');
+-
+-    og.setAttribute('property', 'og:title');
+-
+-    document.head.appendChild(og);
+-
+-  }
+-
+-  og.content = title;
+-
++  canonical.href = url;
+ }
+ 
+diff --git a/frontend/src/router.js b/frontend/src/router.js
+index f15b5b1..91b2b4d 100644
+--- a/frontend/src/router.js
++++ b/frontend/src/router.js
+@@ -31,6 +31,7 @@ const routes = [
+   { path: '/datenschutz', loader: () => import('../pages/datenschutz.js'), render: 'renderDatenschutz' },
+   { path: '/agb', loader: () => import('../pages/agb.js'), render: 'renderAgb' },
+   { path: '/widerruf', loader: () => import('../pages/widerruf.js'), render: 'renderWiderruf' },
++  { path: '/ki-richtlinie', loader: () => import('../pages/kiRichtlinie.js'), render: 'renderKiRichtlinie' },
+   { path: '/newsletter-confirm', loader: () => import('../pages/newsletterConfirm.js'), render: 'renderNewsletterConfirm' },
+ ];
+ 
+diff --git a/frontend/styles/main.css b/frontend/styles/main.css
+index fe21c14..0d6b34c 100644
+--- a/frontend/styles/main.css
++++ b/frontend/styles/main.css
+@@ -181,6 +181,7 @@
+   .fade-stagger > *:nth-child(6) { animation-delay: 0.3s; }
+ 
+   @media (prefers-reduced-motion: reduce) {
++    html { scroll-behavior: auto; }
+     .fade-stagger > *,
+     .animate-slide-up {
+       opacity: 1 !important;
+diff --git a/frontend/tailwind.config.js b/frontend/tailwind.config.js
+index f0c41aa..6088089 100644
+--- a/frontend/tailwind.config.js
++++ b/frontend/tailwind.config.js
+@@ -5,8 +5,8 @@ export default {
+   theme: {
+     extend: {
+       fontFamily: {
+-        sans: ['Inter', 'system-ui', 'sans-serif'],
+-        display: ['Inter', 'system-ui', 'sans-serif'],
++        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
++        display: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+       },
+       colors: {
+         brand: {
+-- 
+2.43.0
+
+
+From 9f167b1cc8ab5d701d0738d3243803cf27087fb5 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 05:43:25 +0000
+Subject: [PATCH 2/3] Mark page landmarks explicitly for the accessibility
+ check.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+WebPrüfer looks for banner, navigation, main and contentinfo in the HTML it downloads. The same roles stay in place after the app starts.
+---
+ frontend/components/Footer.js  |  2 +-
+ frontend/components/Header.js  |  4 ++--
+ frontend/index.html            | 10 +++++-----
+ frontend/src/legalDocuments.js | 12 ++++++------
+ frontend/src/router.js         |  2 +-
+ 5 files changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/frontend/components/Footer.js b/frontend/components/Footer.js
+index 0009468..8170d5b 100644
+--- a/frontend/components/Footer.js
++++ b/frontend/components/Footer.js
+@@ -4,7 +4,7 @@ export function renderFooter() {
+   const year = new Date().getFullYear();
+ 
+   return `
+-    <footer class="mt-20 border-t border-theme bg-surface-elevated/90">
++    <footer role="contentinfo" class="mt-20 border-t border-theme bg-surface-elevated/90">
+       <div class="page-container">
+         <div class="legal-notice mb-8 text-xs">
+           ${t('footer.notice')}
+diff --git a/frontend/components/Header.js b/frontend/components/Header.js
+index 97a629c..62c8c95 100644
+--- a/frontend/components/Header.js
++++ b/frontend/components/Header.js
+@@ -33,7 +33,7 @@ export function renderHeader(currentPath) {
+ 
+   const lang = getLang();
+   return `
+-    <header class="sticky top-0 z-50 border-b border-theme/80 glass">
++    <header role="banner" class="sticky top-0 z-50 border-b border-theme/80 glass">
+       <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+         <a href="#/" data-nav="/" class="group flex shrink-0 items-center gap-3">
+           <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-600 text-sm font-bold text-white shadow-sm shadow-brand-600/20">
+@@ -47,7 +47,7 @@ export function renderHeader(currentPath) {
+ 
+         <div class="hidden flex-1 md:block">${renderSearchBar({ id: 'header-search', compact: true })}</div>
+ 
+-        <nav class="hidden items-center gap-1 xl:flex" aria-label="${t('aria.mainNav')}">${links}</nav>
++        <nav role="navigation" class="hidden items-center gap-1 xl:flex" aria-label="${t('aria.mainNav')}">${links}</nav>
+ 
+         <div class="ml-auto flex items-center gap-2">
+           <div class="hidden items-center rounded-lg border border-theme p-0.5 sm:flex" role="group" aria-label="${t('aria.language')}">
+diff --git a/frontend/index.html b/frontend/index.html
+index b7f5caa..0b9423b 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -90,9 +90,9 @@
+   <body class="bg-surface text-content antialiased transition-colors duration-300">
+     <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+     <div id="app">
+-      <header>
++      <header role="banner">
+         <a href="/">Kryptogutscheine</a>
+-        <nav aria-label="Hauptnavigation">
++        <nav role="navigation" aria-label="Hauptnavigation">
+           <a href="/#/shop">Shop</a>
+           <a href="/#/faq">FAQ</a>
+           <a href="/impressum">Impressum</a>
+@@ -102,7 +102,7 @@
+           <a href="/ki-richtlinie">KI-Richtlinie</a>
+         </nav>
+       </header>
+-      <main id="main-content">
++      <main id="main-content" role="main">
+         <h1>Digitale Gutscheine mit Kryptowährung kaufen</h1>
+         <p>Kryptogutscheine vermittelt Gutscheine bekannter Marken. Zahlung und Lieferung laufen direkt über Bitrefill. Kryptogutscheine verwahrt keine Gelder.</p>
+         <h2>So funktioniert es</h2>
+@@ -112,8 +112,8 @@
+           <li>Code nach Zahlungsbestätigung digital erhalten</li>
+         </ol>
+       </main>
+-      <footer>
+-        <nav aria-label="Rechtliches">
++      <footer role="contentinfo">
++        <nav role="navigation" aria-label="Rechtliches">
+           <h2>Rechtliches</h2>
+           <ul>
+             <li><a href="/impressum">Impressum</a></li>
+diff --git a/frontend/src/legalDocuments.js b/frontend/src/legalDocuments.js
+index 4a56639..904c9c0 100644
+--- a/frontend/src/legalDocuments.js
++++ b/frontend/src/legalDocuments.js
+@@ -20,7 +20,7 @@ const PAGE_DESCRIPTIONS = {
+ function impressum(L) {
+   return {
+     title: 'Impressum',
+-    subtitle: `Angaben gemäß § 5 TMG · Stand: ${LEGAL_LAST_UPDATED}`,
++    subtitle: `Angaben gemäß § 5 DDG · Stand: ${LEGAL_LAST_UPDATED}`,
+     sections: [
+       {
+         title: 'Anbieter',
+@@ -571,15 +571,15 @@ export function renderLegalDocumentHtml(slug) {
+ </head>
+ <body>
+   <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+-  <header>
++    <header role="banner">
+     <a class="brand" href="/">Kryptogutscheine</a>
+-    <nav aria-label="Rechtliches">${navLinks('/' + slug)}</nav>
++    <nav role="navigation" aria-label="Rechtliches">${navLinks('/' + slug)}</nav>
+   </header>
+-  <main id="main-content">
++  <main id="main-content" role="main">
+     ${renderArticle(doc)}
+   </main>
+-  <footer>
+-    <nav aria-label="Rechtliches Footer">${navLinks('/' + slug)}</nav>
++  <footer role="contentinfo">
++    <nav role="navigation" aria-label="Rechtliches Footer">${navLinks('/' + slug)}</nav>
+     <p class="footnote">© ${year} Kryptogutscheine · <a href="/">Zur Startseite</a></p>
+   </footer>
+ </body>
+diff --git a/frontend/src/router.js b/frontend/src/router.js
+index 91b2b4d..fe12a53 100644
+--- a/frontend/src/router.js
++++ b/frontend/src/router.js
+@@ -78,7 +78,7 @@ export async function renderApp() {
+     ${banners}
+     ${renderPaymentResumeBanner(path)}
+     ${renderHeader(path)}
+-    <main id="main-content" class="min-h-[calc(100vh-12rem)]"></main>
++    <main id="main-content" role="main" class="min-h-[calc(100vh-12rem)]"></main>
+     ${renderFooter()}
+     ${renderMobileNav(path)}
+   `;
+-- 
+2.43.0
+
+
+From 5d7b1e6088807afb3ed33499929718965eb2ffd0 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 05:50:25 +0000
+Subject: [PATCH 3/3] Stop spoofed client IPs from bypassing limits and tighten
+ request checks.
+
+The invoice cap and admin IP list trusted the leftmost X-Forwarded-For value, which the caller can set. Use the proxy-resolved address, reject odd product and order ids, and stop newsletter responses from confirming whether an address is stored.
+---
+ backend/controllers/newsletterController.js |  7 +++----
+ backend/middleware/security.js              |  2 +-
+ backend/storage/db.js                       |  3 ++-
+ backend/tests/clientIp.test.js              | 22 +++++++++++++++++++++
+ backend/utils/clientIp.js                   | 15 ++++++++------
+ backend/utils/validate.js                   |  4 ++--
+ 6 files changed, 39 insertions(+), 14 deletions(-)
+ create mode 100644 backend/tests/clientIp.test.js
+
+diff --git a/backend/controllers/newsletterController.js b/backend/controllers/newsletterController.js
+index 67d9c25..268cbd0 100644
+--- a/backend/controllers/newsletterController.js
++++ b/backend/controllers/newsletterController.js
+@@ -49,7 +49,7 @@ export function confirm(req, res, next) {
+     if (!email) {
+       return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.', code: 'NEWSLETTER_CONFIRM_INVALID' });
+     }
+-    res.json({ ok: true, message: 'Newsletter-Anmeldung bestätigt.', email });
++    res.json({ ok: true, message: 'Newsletter-Anmeldung bestätigt.' });
+   } catch (err) {
+     next(err);
+   }
+@@ -58,11 +58,10 @@ export function confirm(req, res, next) {
+ export function unsubscribe(req, res, next) {
+   try {
+     const { email } = emailSchema.parse(req.body);
+-    const removed = unsubscribeNewsletter(email);
++    unsubscribeNewsletter(email);
+     res.json({
+       ok: true,
+-      removed,
+-      message: removed ? 'Du wurdest abgemeldet.' : 'E-Mail war nicht angemeldet.',
++      message: 'Wenn diese Adresse eingetragen war, ist sie jetzt abgemeldet.',
+     });
+   } catch (err) {
+     next(err);
+diff --git a/backend/middleware/security.js b/backend/middleware/security.js
+index 02c7ac1..79e553a 100644
+--- a/backend/middleware/security.js
++++ b/backend/middleware/security.js
+@@ -75,7 +75,7 @@ export function applySecurityMiddleware(app) {
+         // Same-origin / Server-to-Server ohne Origin erlauben
+         if (!origin || allowed.includes(origin)) return callback(null, true);
+         logger.warn('CORS blockiert', { origin });
+-        callback(new Error('CORS nicht erlaubt'));
++        callback(null, false);
+       },
+       credentials: true,
+       methods: ['GET', 'POST', 'OPTIONS'],
+diff --git a/backend/storage/db.js b/backend/storage/db.js
+index 07793f1..8ff7fbf 100644
+--- a/backend/storage/db.js
++++ b/backend/storage/db.js
+@@ -59,9 +59,10 @@ export function getDb() {
+   if (db) return db;
+ 
+   ensureDataDir();
++  const runningTests = process.env.NODE_ENV === 'test' || process.execArgv.includes('--test');
+   const file =
+     process.env.SQLITE_PATH ||
+-    (process.env.NODE_ENV === 'test' ? ':memory:' : path.join(DATA_DIR, 'redeemx.db'));
++    (runningTests ? ':memory:' : path.join(DATA_DIR, 'redeemx.db'));
+ 
+   db = new Database(file);
+   db.exec(schemaStatements());
+diff --git a/backend/tests/clientIp.test.js b/backend/tests/clientIp.test.js
+new file mode 100644
+index 0000000..f09818b
+--- /dev/null
++++ b/backend/tests/clientIp.test.js
+@@ -0,0 +1,22 @@
++import { test, describe } from 'node:test';
++import assert from 'node:assert/strict';
++import { getClientIp } from '../utils/clientIp.js';
++
++describe('client ip', () => {
++  test('uses the proxy-resolved address, not a spoofed forwarded header', () => {
++    const req = {
++      headers: { 'x-forwarded-for': '8.8.8.8, 203.0.113.10' },
++      ip: '203.0.113.10',
++      socket: { remoteAddress: '10.0.0.1' },
++    };
++    assert.equal(getClientIp(req), '203.0.113.10');
++  });
++
++  test('strips the IPv4-mapped IPv6 prefix', () => {
++    assert.equal(getClientIp({ ip: '::ffff:192.0.2.5' }), '192.0.2.5');
++  });
++
++  test('falls back when no address is known', () => {
++    assert.equal(getClientIp({}), 'unknown');
++  });
++});
+diff --git a/backend/utils/clientIp.js b/backend/utils/clientIp.js
+index 8bb7e91..c5d9236 100644
+--- a/backend/utils/clientIp.js
++++ b/backend/utils/clientIp.js
+@@ -1,8 +1,11 @@
+-/** Client-IP hinter Reverse-Proxy (trust proxy muss gesetzt sein). */
++/**
++ * Client-IP für Limits und Admin-Freigaben.
++ * Nur req.ip verwenden. Express setzt das über `trust proxy` aus dem
++ * letzten vertrauenswürdigen Hop. Den rohen X-Forwarded-For-Header
++ * nicht selbst lesen: der linke Wert kann vom Aufrufer gesetzt sein
++ * und damit das Rechnungslimit und die Admin-IP-Liste umgehen.
++ */
+ export function getClientIp(req) {
+-  const forwarded = req.headers['x-forwarded-for'];
+-  if (typeof forwarded === 'string' && forwarded.trim()) {
+-    return forwarded.split(',')[0].trim().slice(0, 45);
+-  }
+-  return (req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 45);
++  const raw = req?.ip || req?.socket?.remoteAddress || 'unknown';
++  return String(raw).replace(/^::ffff:/, '').slice(0, 45);
+ }
+diff --git a/backend/utils/validate.js b/backend/utils/validate.js
+index 97c711d..c144fa4 100644
+--- a/backend/utils/validate.js
++++ b/backend/utils/validate.js
+@@ -2,7 +2,7 @@ import { z } from 'zod';
+ import { ALLOWED_PAYMENT_METHODS } from './paymentMethods.js';
+ import { MAX_VOUCHER_AMOUNT, isAmountWithinLimit } from './voucherLimits.js';
+ 
+-const productIdRegex = /^[a-zA-Z0-9_\-<>]+$/;
++const productIdRegex = /^[a-zA-Z0-9_-]+$/;
+ 
+ export { productIdRegex };
+ 
+@@ -112,7 +112,7 @@ export const invoiceIdSchema = z.object({
+ });
+ 
+ export const orderIdSchema = z.object({
+-  id: z.string().min(8).max(128),
++  id: z.string().min(8).max(128).regex(/^[a-zA-Z0-9_-]+$/, 'Ungültige Bestell-ID'),
+ });
+ 
+ export function sanitizeString(input, maxLen = 256) {
+-- 
+2.43.0
+
