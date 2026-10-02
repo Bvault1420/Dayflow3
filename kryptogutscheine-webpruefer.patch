@@ -1,7 +1,7 @@
 From 23f96812ea7655ba60caebcdee53153ba9e99c7a Mon Sep 17 00:00:00 2001
 From: Cursor Agent <cursoragent@cursor.com>
 Date: Fri, 2 Oct 2026 05:26:03 +0000
-Subject: [PATCH 1/2] Make legal pages and the homepage readable without
+Subject: [PATCH 1/3] Make legal pages and the homepage readable without
  JavaScript.
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -1882,7 +1882,7 @@ index f0c41aa..6088089 100644
 From 9f167b1cc8ab5d701d0738d3243803cf27087fb5 Mon Sep 17 00:00:00 2001
 From: Cursor Agent <cursoragent@cursor.com>
 Date: Fri, 2 Oct 2026 05:43:25 +0000
-Subject: [PATCH 2/2] Mark page landmarks explicitly for the accessibility
+Subject: [PATCH 2/3] Mark page landmarks explicitly for the accessibility
  check.
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -2015,6 +2015,155 @@ index 91b2b4d..fe12a53 100644
      ${renderFooter()}
      ${renderMobileNav(path)}
    `;
+-- 
+2.43.0
+
+
+From 5d7b1e6088807afb3ed33499929718965eb2ffd0 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 05:50:25 +0000
+Subject: [PATCH 3/3] Stop spoofed client IPs from bypassing limits and tighten
+ request checks.
+
+The invoice cap and admin IP list trusted the leftmost X-Forwarded-For value, which the caller can set. Use the proxy-resolved address, reject odd product and order ids, and stop newsletter responses from confirming whether an address is stored.
+---
+ backend/controllers/newsletterController.js |  7 +++----
+ backend/middleware/security.js              |  2 +-
+ backend/storage/db.js                       |  3 ++-
+ backend/tests/clientIp.test.js              | 22 +++++++++++++++++++++
+ backend/utils/clientIp.js                   | 15 ++++++++------
+ backend/utils/validate.js                   |  4 ++--
+ 6 files changed, 39 insertions(+), 14 deletions(-)
+ create mode 100644 backend/tests/clientIp.test.js
+
+diff --git a/backend/controllers/newsletterController.js b/backend/controllers/newsletterController.js
+index 67d9c25..268cbd0 100644
+--- a/backend/controllers/newsletterController.js
++++ b/backend/controllers/newsletterController.js
+@@ -49,7 +49,7 @@ export function confirm(req, res, next) {
+     if (!email) {
+       return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.', code: 'NEWSLETTER_CONFIRM_INVALID' });
+     }
+-    res.json({ ok: true, message: 'Newsletter-Anmeldung bestätigt.', email });
++    res.json({ ok: true, message: 'Newsletter-Anmeldung bestätigt.' });
+   } catch (err) {
+     next(err);
+   }
+@@ -58,11 +58,10 @@ export function confirm(req, res, next) {
+ export function unsubscribe(req, res, next) {
+   try {
+     const { email } = emailSchema.parse(req.body);
+-    const removed = unsubscribeNewsletter(email);
++    unsubscribeNewsletter(email);
+     res.json({
+       ok: true,
+-      removed,
+-      message: removed ? 'Du wurdest abgemeldet.' : 'E-Mail war nicht angemeldet.',
++      message: 'Wenn diese Adresse eingetragen war, ist sie jetzt abgemeldet.',
+     });
+   } catch (err) {
+     next(err);
+diff --git a/backend/middleware/security.js b/backend/middleware/security.js
+index 02c7ac1..79e553a 100644
+--- a/backend/middleware/security.js
++++ b/backend/middleware/security.js
+@@ -75,7 +75,7 @@ export function applySecurityMiddleware(app) {
+         // Same-origin / Server-to-Server ohne Origin erlauben
+         if (!origin || allowed.includes(origin)) return callback(null, true);
+         logger.warn('CORS blockiert', { origin });
+-        callback(new Error('CORS nicht erlaubt'));
++        callback(null, false);
+       },
+       credentials: true,
+       methods: ['GET', 'POST', 'OPTIONS'],
+diff --git a/backend/storage/db.js b/backend/storage/db.js
+index 07793f1..8ff7fbf 100644
+--- a/backend/storage/db.js
++++ b/backend/storage/db.js
+@@ -59,9 +59,10 @@ export function getDb() {
+   if (db) return db;
+ 
+   ensureDataDir();
++  const runningTests = process.env.NODE_ENV === 'test' || process.execArgv.includes('--test');
+   const file =
+     process.env.SQLITE_PATH ||
+-    (process.env.NODE_ENV === 'test' ? ':memory:' : path.join(DATA_DIR, 'redeemx.db'));
++    (runningTests ? ':memory:' : path.join(DATA_DIR, 'redeemx.db'));
+ 
+   db = new Database(file);
+   db.exec(schemaStatements());
+diff --git a/backend/tests/clientIp.test.js b/backend/tests/clientIp.test.js
+new file mode 100644
+index 0000000..f09818b
+--- /dev/null
++++ b/backend/tests/clientIp.test.js
+@@ -0,0 +1,22 @@
++import { test, describe } from 'node:test';
++import assert from 'node:assert/strict';
++import { getClientIp } from '../utils/clientIp.js';
++
++describe('client ip', () => {
++  test('uses the proxy-resolved address, not a spoofed forwarded header', () => {
++    const req = {
++      headers: { 'x-forwarded-for': '8.8.8.8, 203.0.113.10' },
++      ip: '203.0.113.10',
++      socket: { remoteAddress: '10.0.0.1' },
++    };
++    assert.equal(getClientIp(req), '203.0.113.10');
++  });
++
++  test('strips the IPv4-mapped IPv6 prefix', () => {
++    assert.equal(getClientIp({ ip: '::ffff:192.0.2.5' }), '192.0.2.5');
++  });
++
++  test('falls back when no address is known', () => {
++    assert.equal(getClientIp({}), 'unknown');
++  });
++});
+diff --git a/backend/utils/clientIp.js b/backend/utils/clientIp.js
+index 8bb7e91..c5d9236 100644
+--- a/backend/utils/clientIp.js
++++ b/backend/utils/clientIp.js
+@@ -1,8 +1,11 @@
+-/** Client-IP hinter Reverse-Proxy (trust proxy muss gesetzt sein). */
++/**
++ * Client-IP für Limits und Admin-Freigaben.
++ * Nur req.ip verwenden. Express setzt das über `trust proxy` aus dem
++ * letzten vertrauenswürdigen Hop. Den rohen X-Forwarded-For-Header
++ * nicht selbst lesen: der linke Wert kann vom Aufrufer gesetzt sein
++ * und damit das Rechnungslimit und die Admin-IP-Liste umgehen.
++ */
+ export function getClientIp(req) {
+-  const forwarded = req.headers['x-forwarded-for'];
+-  if (typeof forwarded === 'string' && forwarded.trim()) {
+-    return forwarded.split(',')[0].trim().slice(0, 45);
+-  }
+-  return (req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 45);
++  const raw = req?.ip || req?.socket?.remoteAddress || 'unknown';
++  return String(raw).replace(/^::ffff:/, '').slice(0, 45);
+ }
+diff --git a/backend/utils/validate.js b/backend/utils/validate.js
+index 97c711d..c144fa4 100644
+--- a/backend/utils/validate.js
++++ b/backend/utils/validate.js
+@@ -2,7 +2,7 @@ import { z } from 'zod';
+ import { ALLOWED_PAYMENT_METHODS } from './paymentMethods.js';
+ import { MAX_VOUCHER_AMOUNT, isAmountWithinLimit } from './voucherLimits.js';
+ 
+-const productIdRegex = /^[a-zA-Z0-9_\-<>]+$/;
++const productIdRegex = /^[a-zA-Z0-9_-]+$/;
+ 
+ export { productIdRegex };
+ 
+@@ -112,7 +112,7 @@ export const invoiceIdSchema = z.object({
+ });
+ 
+ export const orderIdSchema = z.object({
+-  id: z.string().min(8).max(128),
++  id: z.string().min(8).max(128).regex(/^[a-zA-Z0-9_-]+$/, 'Ungültige Bestell-ID'),
+ });
+ 
+ export function sanitizeString(input, maxLen = 256) {
 -- 
 2.43.0
 
