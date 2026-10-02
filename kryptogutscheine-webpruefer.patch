@@ -1,7 +1,7 @@
 From 23f96812ea7655ba60caebcdee53153ba9e99c7a Mon Sep 17 00:00:00 2001
 From: Cursor Agent <cursoragent@cursor.com>
 Date: Fri, 2 Oct 2026 05:26:03 +0000
-Subject: [PATCH] Make legal pages and the homepage readable without
+Subject: [PATCH 1/2] Make legal pages and the homepage readable without
  JavaScript.
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -1875,6 +1875,146 @@ index f0c41aa..6088089 100644
        },
        colors: {
          brand: {
+-- 
+2.43.0
+
+
+From 9f167b1cc8ab5d701d0738d3243803cf27087fb5 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 05:43:25 +0000
+Subject: [PATCH 2/2] Mark page landmarks explicitly for the accessibility
+ check.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+WebPrüfer looks for banner, navigation, main and contentinfo in the HTML it downloads. The same roles stay in place after the app starts.
+---
+ frontend/components/Footer.js  |  2 +-
+ frontend/components/Header.js  |  4 ++--
+ frontend/index.html            | 10 +++++-----
+ frontend/src/legalDocuments.js | 12 ++++++------
+ frontend/src/router.js         |  2 +-
+ 5 files changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/frontend/components/Footer.js b/frontend/components/Footer.js
+index 0009468..8170d5b 100644
+--- a/frontend/components/Footer.js
++++ b/frontend/components/Footer.js
+@@ -4,7 +4,7 @@ export function renderFooter() {
+   const year = new Date().getFullYear();
+ 
+   return `
+-    <footer class="mt-20 border-t border-theme bg-surface-elevated/90">
++    <footer role="contentinfo" class="mt-20 border-t border-theme bg-surface-elevated/90">
+       <div class="page-container">
+         <div class="legal-notice mb-8 text-xs">
+           ${t('footer.notice')}
+diff --git a/frontend/components/Header.js b/frontend/components/Header.js
+index 97a629c..62c8c95 100644
+--- a/frontend/components/Header.js
++++ b/frontend/components/Header.js
+@@ -33,7 +33,7 @@ export function renderHeader(currentPath) {
+ 
+   const lang = getLang();
+   return `
+-    <header class="sticky top-0 z-50 border-b border-theme/80 glass">
++    <header role="banner" class="sticky top-0 z-50 border-b border-theme/80 glass">
+       <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+         <a href="#/" data-nav="/" class="group flex shrink-0 items-center gap-3">
+           <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-600 text-sm font-bold text-white shadow-sm shadow-brand-600/20">
+@@ -47,7 +47,7 @@ export function renderHeader(currentPath) {
+ 
+         <div class="hidden flex-1 md:block">${renderSearchBar({ id: 'header-search', compact: true })}</div>
+ 
+-        <nav class="hidden items-center gap-1 xl:flex" aria-label="${t('aria.mainNav')}">${links}</nav>
++        <nav role="navigation" class="hidden items-center gap-1 xl:flex" aria-label="${t('aria.mainNav')}">${links}</nav>
+ 
+         <div class="ml-auto flex items-center gap-2">
+           <div class="hidden items-center rounded-lg border border-theme p-0.5 sm:flex" role="group" aria-label="${t('aria.language')}">
+diff --git a/frontend/index.html b/frontend/index.html
+index b7f5caa..0b9423b 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -90,9 +90,9 @@
+   <body class="bg-surface text-content antialiased transition-colors duration-300">
+     <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+     <div id="app">
+-      <header>
++      <header role="banner">
+         <a href="/">Kryptogutscheine</a>
+-        <nav aria-label="Hauptnavigation">
++        <nav role="navigation" aria-label="Hauptnavigation">
+           <a href="/#/shop">Shop</a>
+           <a href="/#/faq">FAQ</a>
+           <a href="/impressum">Impressum</a>
+@@ -102,7 +102,7 @@
+           <a href="/ki-richtlinie">KI-Richtlinie</a>
+         </nav>
+       </header>
+-      <main id="main-content">
++      <main id="main-content" role="main">
+         <h1>Digitale Gutscheine mit Kryptowährung kaufen</h1>
+         <p>Kryptogutscheine vermittelt Gutscheine bekannter Marken. Zahlung und Lieferung laufen direkt über Bitrefill. Kryptogutscheine verwahrt keine Gelder.</p>
+         <h2>So funktioniert es</h2>
+@@ -112,8 +112,8 @@
+           <li>Code nach Zahlungsbestätigung digital erhalten</li>
+         </ol>
+       </main>
+-      <footer>
+-        <nav aria-label="Rechtliches">
++      <footer role="contentinfo">
++        <nav role="navigation" aria-label="Rechtliches">
+           <h2>Rechtliches</h2>
+           <ul>
+             <li><a href="/impressum">Impressum</a></li>
+diff --git a/frontend/src/legalDocuments.js b/frontend/src/legalDocuments.js
+index 4a56639..904c9c0 100644
+--- a/frontend/src/legalDocuments.js
++++ b/frontend/src/legalDocuments.js
+@@ -20,7 +20,7 @@ const PAGE_DESCRIPTIONS = {
+ function impressum(L) {
+   return {
+     title: 'Impressum',
+-    subtitle: `Angaben gemäß § 5 TMG · Stand: ${LEGAL_LAST_UPDATED}`,
++    subtitle: `Angaben gemäß § 5 DDG · Stand: ${LEGAL_LAST_UPDATED}`,
+     sections: [
+       {
+         title: 'Anbieter',
+@@ -571,15 +571,15 @@ export function renderLegalDocumentHtml(slug) {
+ </head>
+ <body>
+   <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+-  <header>
++    <header role="banner">
+     <a class="brand" href="/">Kryptogutscheine</a>
+-    <nav aria-label="Rechtliches">${navLinks('/' + slug)}</nav>
++    <nav role="navigation" aria-label="Rechtliches">${navLinks('/' + slug)}</nav>
+   </header>
+-  <main id="main-content">
++  <main id="main-content" role="main">
+     ${renderArticle(doc)}
+   </main>
+-  <footer>
+-    <nav aria-label="Rechtliches Footer">${navLinks('/' + slug)}</nav>
++  <footer role="contentinfo">
++    <nav role="navigation" aria-label="Rechtliches Footer">${navLinks('/' + slug)}</nav>
+     <p class="footnote">© ${year} Kryptogutscheine · <a href="/">Zur Startseite</a></p>
+   </footer>
+ </body>
+diff --git a/frontend/src/router.js b/frontend/src/router.js
+index 91b2b4d..fe12a53 100644
+--- a/frontend/src/router.js
++++ b/frontend/src/router.js
+@@ -78,7 +78,7 @@ export async function renderApp() {
+     ${banners}
+     ${renderPaymentResumeBanner(path)}
+     ${renderHeader(path)}
+-    <main id="main-content" class="min-h-[calc(100vh-12rem)]"></main>
++    <main id="main-content" role="main" class="min-h-[calc(100vh-12rem)]"></main>
+     ${renderFooter()}
+     ${renderMobileNav(path)}
+   `;
 -- 
 2.43.0
 
